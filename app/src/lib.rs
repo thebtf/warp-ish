@@ -71,6 +71,8 @@ mod ui_components;
 mod undo_close;
 mod uri;
 mod user_config;
+#[cfg(all(windows, feature = "local_fs"))]
+mod warp_import;
 pub mod util;
 mod view_components;
 mod vim_registers;
@@ -1556,7 +1558,13 @@ fn launch(ctx: &mut warpui::AppContext, app_state: Option<AppState>, launch_mode
         LaunchMode::App { .. } | LaunchMode::Test { .. } => {
             // Attempt to restore windows from the persisted application state.
             let arg = OpenFromRestoredArg { app_state };
+            #[cfg(all(windows, feature = "local_fs"))]
+            let expected_windows = arg.app_state.as_ref().map_or(0, |state| state.windows.len());
             ctx.dispatch_global_action("root_view:open_from_restored", &arg);
+            #[cfg(all(windows, feature = "local_fs"))]
+            if expected_windows > 0 && ctx.window_ids().count() == expected_windows {
+                warp_import::confirm_restored_workspace();
+            }
 
             // Process any URLs that were provided on the command line (which may be
             // file:// URLs or ones using our custom URL scheme).

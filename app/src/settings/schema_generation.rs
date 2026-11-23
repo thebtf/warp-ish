@@ -31,7 +31,7 @@ fn settings_schema_json(is_flag_enabled: impl Fn(FeatureFlag) -> bool) -> Result
     settings_schema_json_for_product(is_flag_enabled, ChannelState::is_windows_warp_ish())
 }
 
-fn settings_schema_json_for_product(
+pub(crate) fn settings_schema_json_for_product(
     is_flag_enabled: impl Fn(FeatureFlag) -> bool,
     terminal_only: bool,
 ) -> Result<String> {
