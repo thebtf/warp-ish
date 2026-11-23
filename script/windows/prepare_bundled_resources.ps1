@@ -190,9 +190,63 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# Append additional (non-Cargo) third-party licenses.
+if ($TerminalOnly) {
+    # cargo-about skips these Git dependencies because they set publish = false.
+    $gitLicenses = @(
+        @{
+            Packages = @('command-corrections')
+            Source = 'git+https://github.com/warpdotdev/command-corrections.git'
+            License = 'MIT'
+            File = 'LICENSE.md'
+            # This revision switched LICENSE.md and README.md to MIT but kept the old Cargo field.
+            LegacyRevision = 'eae08c8c51d9bc9741fcb17eef2c21f696aebbeb'
+            LegacyLicense = 'AGPL-3.0-only'
+        },
+        @{
+            Packages = @('warp-workflows', 'warp-workflows-types')
+            Source = 'git+https://github.com/warpdotdev/workflows'
+            License = 'Apache-2.0'
+            File = '..\LICENSE'
+        },
+        @{
+            Packages = @('warp-command-signatures', 'warp-completion-metadata')
+            Source = 'git+https://github.com/warpdotdev/command-signatures.git'
+            License = 'MIT'
+            File = '..\LICENSE.md'
+        }
+    )
+    $metadata = cargo metadata --locked --offline --format-version 1 --manifest-path $manifest `
+        --features 'release_bundle gui' --filter-platform x86_64-pc-windows-msvc
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to resolve bundled third-party Git licenses.' }
+    $packages = ($metadata | ConvertFrom-Json).packages
+    foreach ($group in $gitLicenses) {
+        $sourcePattern = '^' + [regex]::Escape($group.Source) + '\?rev=([0-9a-f]{40})#\1$'
+        $licenseFiles = foreach ($name in $group.Packages) {
+            $candidates = @($packages | Where-Object { $_.name -eq $name })
+            if ($candidates.Count -ne 1 -or $candidates[0].source -cnotmatch $sourcePattern -or
+                $null -eq $candidates[0].publish -or $candidates[0].publish.Count -ne 0) {
+                throw "Unexpected source for bundled dependency $name. Review its attribution."
+            }
+            $package = $candidates[0]
+            $expectedLicense = if ($group.LegacyRevision -and $package.source.EndsWith("#$($group.LegacyRevision)")) {
+                $group.LegacyLicense
+            } else { $group.License }
+            if ($package.license -cne $expectedLicense) {
+                throw "Unexpected license metadata for bundled dependency $name. Review its attribution."
+            }
+            [IO.Path]::GetFullPath((Join-Path (Split-Path $package.manifest_path -Parent) $group.File))
+        }
+        $licenseFiles = @($licenseFiles | Select-Object -Unique)
+        if ($licenseFiles.Count -ne 1) {
+            throw "Bundled dependencies $($group.Packages -join ', ') do not share the expected license file."
+        }
+        $AdditionalLicenses += @{ Name = $group.Packages -join ', '; License = $group.License; Path = $licenseFiles[0] }
+    }
+}
+
+# Append third-party licenses outside cargo-about's generated list.
 foreach ($entry in $AdditionalLicenses) {
-    $LicenseFile = Join-Path $RepoRoot $entry.Path
+    $LicenseFile = if ([IO.Path]::IsPathRooted($entry.Path)) { $entry.Path } else { Join-Path $RepoRoot $entry.Path }
     if (-Not (Test-Path -LiteralPath $LicenseFile)) {
         Write-Error "License file not found: $LicenseFile"
         exit 1
