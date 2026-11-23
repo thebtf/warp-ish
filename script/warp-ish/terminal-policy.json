@@ -39,6 +39,10 @@
         "target.cfg(target_os = \"windows\").dependencies|windows": {
           "sha256": "dc089218ebb847fc2f6f9f979f48b485375cc87420f0567ab14cdb98ac2d4d93",
           "reason": "Inherits the reviewed native Windows bindings for the desktop application."
+        },
+        "target.cfg(target_os = \"windows\").dependencies|jsonschema": {
+          "sha256": "35c7ec88088d9187b05102a7d1ef87c924c01ad735df62ed1e4002ce0f441460",
+          "reason": "Validates terminal settings imported on Windows against the local schema with default features disabled."
         }
       },
       "crates/warp_terminal/Cargo.toml": {
@@ -52,6 +56,9 @@
       "app/src/lib.rs": {
         "init_calls": {
           "view_components::keyboard_navigable_buttons::init": "Registers local keyboard navigation for buttons."
+        },
+        "modules": {
+          "warp_import": "Imports saved Windows terminal workspaces and settings from local files."
         }
       }
     }
