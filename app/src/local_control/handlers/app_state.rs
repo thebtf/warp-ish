@@ -33,7 +33,6 @@ use crate::local_control::resolver::{
 };
 use crate::palette::PaletteMode;
 use crate::pane_group::{ActivationReason, Direction, PaneGroupAction};
-use crate::server::telemetry::PaletteSource;
 use crate::settings_view::SettingsSection;
 #[cfg(feature = "local_fs")]
 use crate::util::file::external_editor::EditorSettings;
@@ -41,7 +40,7 @@ use crate::util::file::external_editor::EditorSettings;
 use crate::util::openable_file_type::{EditorLayout, resolve_file_target_to_open_in_warp};
 #[cfg(feature = "local_fs")]
 use crate::workspace::PaneViewLocator;
-use crate::workspace::{CommandSearchOptions, InitContent, WorkspaceAction};
+use crate::workspace::{CommandSearchOptions, InitContent, PaletteSource, WorkspaceAction};
 
 const MAX_PANE_RESIZE_STEPS: u32 = 1_000;
 
@@ -83,22 +82,6 @@ pub(crate) fn handle(
             target,
             ctx,
         ),
-        ActionKind::SurfaceWarpDriveOpen => surface_workspace_action(
-            instance_id,
-            action,
-            SurfaceDestination::WarpDrive,
-            WorkspaceAction::OpenWarpDrive,
-            target,
-            ctx,
-        ),
-        ActionKind::SurfaceAgentManagementOpen => surface_workspace_action(
-            instance_id,
-            action,
-            SurfaceDestination::AgentManagement,
-            WorkspaceAction::OpenAgentManagementView,
-            target,
-            ctx,
-        ),
         ActionKind::SessionNext => workspace_action(
             instance_id,
             action,
@@ -122,24 +105,10 @@ pub(crate) fn handle(
             surface_command_search_open(instance_id, params, target, ctx)
         }
         ActionKind::SurfaceThemePickerOpen => surface_theme_picker_open(instance_id, target, ctx),
-        ActionKind::SurfaceWarpDriveToggle => workspace_action(
-            instance_id,
-            action,
-            WorkspaceAction::ToggleWarpDrive,
-            target,
-            ctx,
-        ),
         ActionKind::SurfaceResourceCenterToggle => workspace_action(
             instance_id,
             action,
             WorkspaceAction::ToggleResourceCenter,
-            target,
-            ctx,
-        ),
-        ActionKind::SurfaceAiAssistantToggle => workspace_action(
-            instance_id,
-            action,
-            WorkspaceAction::ToggleAIAssistant,
             target,
             ctx,
         ),
@@ -166,14 +135,6 @@ pub(crate) fn handle(
             action,
             SurfaceDestination::GlobalSearch,
             WorkspaceAction::OpenGlobalSearch,
-            target,
-            ctx,
-        ),
-        ActionKind::SurfaceConversationListOpen => surface_workspace_action(
-            instance_id,
-            action,
-            SurfaceDestination::ConversationList,
-            WorkspaceAction::OpenConversationListView,
             target,
             ctx,
         ),
@@ -681,16 +642,22 @@ fn surface_settings_open(
 }
 
 fn settings_section(page: String) -> Result<SettingsSection, ControlError> {
+    if matches!(page.as_str(), "Warp Drive" | "WarpDrive") {
+        return Err(ControlError::new(
+            ErrorCode::UnsupportedAction,
+            "surface.settings.open does not open Warp Drive settings",
+        ));
+    }
     let section = SettingsSection::from_slug(&page).ok_or_else(|| {
         ControlError::new(
             ErrorCode::InvalidParams,
             format!("surface.settings.open cannot resolve settings page {page:?}"),
         )
     })?;
-    if section == SettingsSection::WarpDrive {
+    if crate::ChannelState::is_windows_warp_ish() && !section.is_terminal_section() {
         return Err(ControlError::new(
             ErrorCode::UnsupportedAction,
-            "surface.settings.open does not open Warp Drive settings",
+            "This settings page is unavailable in warp-ish",
         ));
     }
     Ok(section)

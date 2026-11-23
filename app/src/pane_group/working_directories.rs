@@ -9,8 +9,6 @@ use std::path::PathBuf;
 #[cfg(feature = "local_fs")]
 use indexmap::IndexSet;
 #[cfg(feature = "local_fs")]
-use remote_server::manager::RemoteServerManager;
-#[cfg(feature = "local_fs")]
 use repo_metadata::repositories::DetectedRepositories;
 use warp_core::SessionId;
 #[cfg(feature = "local_fs")]
@@ -30,56 +28,6 @@ use crate::code_review::comments::{
 };
 use crate::code_review::diff_state::{DiffMode, DiffStateModel};
 use crate::workspace::view::global_search::view::GlobalSearchView;
-
-/// Type-safe wrapper around the map of `LocalOrRemotePath` → `DiffStateModel`.
-///
-/// Enforces that local keys are always paired with local-backend models and
-/// remote keys with remote-backend models via dedicated insertion methods.
-#[cfg(feature = "local_fs")]
-#[derive(Default)]
-struct DiffStateModelMap {
-    models: HashMap<LocalOrRemotePath, ModelHandle<DiffStateModel>>,
-}
-
-#[cfg(feature = "local_fs")]
-impl DiffStateModelMap {
-    fn get(&self, key: &LocalOrRemotePath) -> Option<&ModelHandle<DiffStateModel>> {
-        self.models.get(key)
-    }
-
-    /// Insert a model that was created from a `LocalOrRemotePath::Local` key.
-    fn insert_local(
-        &mut self,
-        path: PathBuf,
-        model: ModelHandle<DiffStateModel>,
-        ctx: &AppContext,
-    ) {
-        debug_assert!(
-            matches!(model.as_ref(ctx), DiffStateModel::Local(_)),
-            "insert_local called with a remote-backend DiffStateModel",
-        );
-        self.models.insert(LocalOrRemotePath::Local(path), model);
-    }
-
-    /// Insert a model that was created from a `LocalOrRemotePath::Remote` key.
-    fn insert_remote(
-        &mut self,
-        remote_id: RemotePath,
-        model: ModelHandle<DiffStateModel>,
-        ctx: &AppContext,
-    ) {
-        debug_assert!(
-            matches!(model.as_ref(ctx), DiffStateModel::Remote(_)),
-            "insert_remote called with a local-backend DiffStateModel",
-        );
-        self.models
-            .insert(LocalOrRemotePath::Remote(remote_id), model);
-    }
-
-    fn remove(&mut self, key: &LocalOrRemotePath) -> Option<ModelHandle<DiffStateModel>> {
-        self.models.remove(key)
-    }
-}
 
 /// Bidirectional map of pane groups to the repository roots they reference.
 ///
@@ -283,7 +231,7 @@ pub struct WorkingDirectoriesModel {
     /// Global mapping from repository keys to their DiffStateModel.
     /// Since git state is inherently tied to a repository (not a pane group),
     /// this is stored globally and shared across all pane groups viewing the same repo.
-    diff_state_models: DiffStateModelMap,
+    diff_state_models: HashMap<PathBuf, ModelHandle<DiffStateModel>>,
     /// Global mapping from repository locations to their CommentBatch.
     /// Like the DiffStateModel mapping, comments are inherently tied to git diffs
     /// and are shared across all pane groups viewing the same repo.
@@ -376,47 +324,22 @@ impl WorkingDirectoriesModel {
             .and_then(|roots| roots.get(root_path).copied())
     }
 
-    /// Get or create a DiffStateModel for a specific repository.
-    ///
-    /// If the model doesn't exist, it will be created. For remote
-    /// repositories we require a connected session for the host; returns
-    /// `None` when none exists so callers treat the panel as unavailable
-    /// for that repo rather than producing a model that cannot subscribe.
+    /// Get or create a diff state model for a local repository.
     pub fn get_or_create_diff_state_model(
         &mut self,
         key: LocalOrRemotePath,
-        preferred_session: Option<SessionId>,
+        _preferred_session: Option<SessionId>,
         ctx: &mut ModelContext<Self>,
     ) -> Option<ModelHandle<DiffStateModel>> {
-        if let Some(model) = self.diff_state_models.get(&key) {
+        let LocalOrRemotePath::Local(path) = key else {
+            return None;
+        };
+        if let Some(model) = self.diff_state_models.get(&path) {
             return Some(model.clone());
         }
 
-        let diff_state_model = match &key {
-            LocalOrRemotePath::Local(path) => {
-                let path = path.clone();
-                ctx.add_model(|ctx| DiffStateModel::new_local(path, ctx))
-            }
-            LocalOrRemotePath::Remote(remote_path) => {
-                let mgr_handle = RemoteServerManager::handle(ctx);
-                mgr_handle
-                    .as_ref(ctx)
-                    .client_for_host(&remote_path.host_id)?;
-                let remote_path = remote_path.clone();
-                ctx.add_model(|ctx| DiffStateModel::new_remote(remote_path, preferred_session, ctx))
-            }
-        };
-
-        match key {
-            LocalOrRemotePath::Local(path) => {
-                self.diff_state_models
-                    .insert_local(path, diff_state_model.clone(), ctx);
-            }
-            LocalOrRemotePath::Remote(remote_id) => {
-                self.diff_state_models
-                    .insert_remote(remote_id, diff_state_model.clone(), ctx);
-            }
-        }
+        let diff_state_model = ctx.add_model(|ctx| DiffStateModel::new_local(path.clone(), ctx));
+        self.diff_state_models.insert(path, diff_state_model.clone());
 
         Some(diff_state_model)
     }
@@ -430,7 +353,10 @@ impl WorkingDirectoriesModel {
         ctx: &mut ModelContext<Self>,
     ) {
         for repo_key in orphaned_repos {
-            if let Some(model) = self.diff_state_models.remove(&repo_key) {
+            if let Some(model) = repo_key
+                .to_local_path()
+                .and_then(|path| self.diff_state_models.remove(path))
+            {
                 model.update(ctx, |model, ctx| {
                     model.stop_active_watcher(ctx);
                 });

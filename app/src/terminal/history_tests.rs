@@ -10,8 +10,9 @@ use itertools::Itertools;
 use warp_core::command::ExitCode;
 use warpui::{App, ModelHandle};
 
-use super::{HistoryEntry, HistoryEvent, PersistedCommand, ShellHost};
-use crate::ai::agent::conversation::AIConversationId;
+use super::{HistoryEntry, HistoryEvent, LinkedWorkflowData, PersistedCommand, ShellHost};
+use crate::persistence::model::AIConversationId;
+use crate::server::ids::HashableId as _;
 use crate::terminal::History;
 use crate::terminal::model::block::{
     AgentInteractionMetadata, SerializedAIMetadata, SerializedBlock,
@@ -22,6 +23,40 @@ use crate::terminal::model::session::{BootstrapSessionType, Session, SessionId, 
 use crate::terminal::model::test_utils::TestBlockBuilder;
 use crate::terminal::shell::ShellType;
 use crate::test_util::{Stub, VirtualFS};
+use crate::workflows::WorkflowId;
+
+#[test]
+fn persisted_cloud_workflow_id_does_not_override_local_history_link() {
+    let workflow_id = WorkflowId::from("a".repeat(22));
+    let mut command = PersistedCommand::from(crate::persistence::model::Command {
+        id: 1,
+        command: "git status".to_string(),
+        exit_code: None,
+        start_ts: None,
+        completed_ts: None,
+        pwd: None,
+        shell: None,
+        username: None,
+        hostname: None,
+        session_id: None,
+        git_branch: None,
+        cloud_workflow_id: Some(workflow_id.to_hash()),
+        workflow_command: None,
+        is_agent_executed: None,
+    });
+
+    let template = "git {{subcommand}}".to_string();
+    command.workflow_command = Some(template.clone());
+    let mut entry = HistoryEntry::from(command);
+    assert_eq!(
+        entry.linked_workflow_data(),
+        Some(LinkedWorkflowData::Command(template)),
+    );
+
+    entry.workflow_command = None;
+    assert_eq!(entry.command, "git status");
+    assert!(entry.linked_workflow_data().is_none());
+}
 
 impl History {
     /// Returns a Future that completes when `History` is initialized for all sessions with IDs in
@@ -67,7 +102,6 @@ impl HistoryEntry {
             session_id: Some(session_id),
             exit_code: Some(ExitCode::from(0)),
             command: command.into(),
-            workflow_id: None,
             workflow_command: None,
             pwd: None,
             start_ts: None,
@@ -88,7 +122,6 @@ impl HistoryEntry {
             session_id: None,
             exit_code: Some(exit_code.into()),
             command: command.into(),
-            workflow_id: None,
             workflow_command: None,
             pwd: Some(pwd.into()),
             start_ts: None,
@@ -771,7 +804,6 @@ fn append_command_with_rich_history_data() {
                 shell_host: Some(shell_host.clone()),
                 session_id: None,
                 git_branch: None,
-                workflow_id: None,
                 workflow_command: None,
                 is_agent_executed: false,
             },
@@ -785,7 +817,6 @@ fn append_command_with_rich_history_data() {
                 shell_host: Some(shell_host.clone()),
                 session_id: None,
                 git_branch: Some(String::from("foobar")),
-                workflow_id: None,
                 workflow_command: None,
                 is_agent_executed: false,
             },
@@ -817,7 +848,6 @@ fn append_command_with_rich_history_data() {
                         pwd: Some(String::from("/Users/andy/")),
                         start_ts: Some(start_ts_3),
                         completed_ts: Some(end_ts_3),
-                        workflow_id: None,
                         workflow_command: None,
                         exit_code: Some(ExitCode::from(0)),
                         git_head: None,
@@ -831,7 +861,6 @@ fn append_command_with_rich_history_data() {
                         pwd: Some(String::from("/Users/andy/")),
                         start_ts: Some(start_ts_4),
                         completed_ts: Some(end_ts_4),
-                        workflow_id: None,
                         workflow_command: None,
                         exit_code: Some(ExitCode::from(0)),
                         git_head: None,
@@ -854,7 +883,6 @@ fn append_command_with_rich_history_data() {
                         pwd: Some(String::from("/usr/bin")),
                         start_ts: Some(start_ts_2),
                         completed_ts: Some(end_ts_2),
-                        workflow_id: None,
                         workflow_command: None,
                         exit_code: Some(ExitCode::from(0)),
                         git_head: Some(String::from("foobar")),
@@ -868,7 +896,6 @@ fn append_command_with_rich_history_data() {
                         pwd: Some(String::from("/Users/andy/")),
                         start_ts: Some(start_ts_3),
                         completed_ts: Some(end_ts_3),
-                        workflow_id: None,
                         workflow_command: None,
                         exit_code: Some(ExitCode::from(0)),
                         git_head: None,
@@ -882,7 +909,6 @@ fn append_command_with_rich_history_data() {
                         pwd: Some(String::from("/Users/andy/")),
                         start_ts: Some(start_ts_4),
                         completed_ts: Some(end_ts_4),
-                        workflow_id: None,
                         workflow_command: None,
                         exit_code: Some(ExitCode::from(0)),
                         git_head: None,
@@ -921,7 +947,6 @@ fn append_restored_command_doesnt_overwrite_rich_history() {
             shell_host: Some(shell_host),
             session_id: None,
             git_branch: None,
-            workflow_id: None,
             workflow_command: None,
             is_agent_executed: false,
         }];
@@ -944,7 +969,6 @@ fn append_restored_command_doesnt_overwrite_rich_history() {
                     pwd: Some("/tmp".to_string()),
                     start_ts: Some(start_ts),
                     completed_ts: Some(end_ts),
-                    workflow_id: None,
                     workflow_command: None,
                     exit_code: Some(ExitCode::from(0)),
                     git_head: None,
@@ -966,7 +990,6 @@ fn append_restored_command_doesnt_overwrite_rich_history() {
                         pwd: Some(String::from("/tmp")),
                         start_ts: Some(start_ts),
                         completed_ts: Some(end_ts),
-                        workflow_id: None,
                         workflow_command: None,
                         exit_code: Some(ExitCode::from(0)),
                         git_head: None,

@@ -12,7 +12,7 @@ secure_storage = ["dep:security-framework", "dep:secret-service", "dep:ouroboros
 test-util = []
 user_preferences = ["dep:objc2", "dep:objc2-foundation", "dep:gloo-storage"]
 user_preferences-file = ["user_preferences", "dep:serde", "dep:serde_json"]
-user_preferences-toml = ["user_preferences", "dep:serde", "dep:serde_json", "dep:toml_edit"]
+user_preferences-toml = ["user_preferences", "dep:serde", "dep:serde_json", "serde_json/preserve_order", "dep:toml_edit"]
 
 [dependencies]
 warp_errors.workspace = true

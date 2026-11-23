@@ -8,19 +8,16 @@ use settings::Setting as _;
 use warpui::{AppContext, ModelContext, SingletonEntity};
 
 use super::event_listener::ChannelEventListener;
-use super::model::block::BlockSize;
+use super::model::block::{BlockSize, SerializedBlockListItem};
 use super::safe_mode_settings::get_secret_obfuscation_mode;
 use super::session_settings::SessionSettings;
 use super::settings::TerminalSettings;
 use super::view::{WARP_PROMPT_HEIGHT_LINES, create_size_info_for_blocklist};
 use super::{BlockPadding, ShellLaunchState, SizeInfo, TerminalModel, color};
-use crate::PrivacySettings;
-use crate::ai::blocklist::SerializedBlockListItem;
-use crate::ai::blocklist::telemetry_banner::should_collect_ai_ugc_telemetry;
 use crate::appearance::Appearance;
 use crate::pane_group::pane::DetachType;
 use crate::settings::{BlockVisibilitySettings, DebugSettings, InputModeSettings};
-use crate::terminal::shell_recovery::{CloudShellRecoveryRequest, ShellReplacementRequest};
+use crate::terminal::shell_recovery::ShellReplacementRequest;
 
 pub trait TerminalManager: Any {
     /// Returns the backing terminal model.
@@ -33,14 +30,6 @@ pub trait TerminalManager: Any {
     /// Implementations should preserve state on [`DetachType::HiddenForClose`] or
     /// [`DetachType::Moved`] and clean up only on [`DetachType::Closed`].
     fn on_view_detached(&self, _detach_type: DetachType, _app: &mut AppContext) {}
-    fn recover_cloud_shell(
-        &mut self,
-        _request: CloudShellRecoveryRequest,
-        _ctx: &mut ModelContext<Box<dyn TerminalManager>>,
-    ) -> bool {
-        false
-    }
-
     fn replace_shell(
         &mut self,
         _request: ShellReplacementRequest,
@@ -154,8 +143,8 @@ pub(super) fn create_terminal_model(
     let sizes = compute_block_size(initial_size, &block_spacing, ctx);
 
     let obfuscate_secrets = get_secret_obfuscation_mode(ctx);
-    let is_ai_ugc_telemetry_enabled =
-        should_collect_ai_ugc_telemetry(ctx, PrivacySettings::as_ref(ctx).is_telemetry_enabled);
+    // Retained model constructor cache selects the existing local output serialization path.
+    let is_ai_ugc_telemetry_enabled = false;
 
     TerminalModel::new(
         restored_blocks.map(|v| v.as_slice()),

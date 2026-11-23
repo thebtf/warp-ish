@@ -7,8 +7,7 @@ use super::*;
 
 const WRITE_TEST_PATH: &str = "test_data/test_write/";
 
-/// This enum is used so that we can pass the event through the async channel.
-/// io::Error is not clonable, so we can't clone the FileModelEvent.
+/// The subset of each event that the tests receive through the async channel.
 #[derive(Debug)]
 enum TestFileModelEvent {
     FileLoaded {
@@ -17,7 +16,7 @@ enum TestFileModelEvent {
         _version: ContentVersion,
     },
     FileSaved,
-    FailedToLoad(String),
+    FailedToLoad(Rc<FileLoadError>),
     FailedToSave,
 }
 
@@ -37,7 +36,7 @@ impl From<&FileModelEvent> for TestFileModelEvent {
             FileModelEvent::FailedToLoad {
                 id: _id,
                 error: err,
-            } => TestFileModelEvent::FailedToLoad(format!("{err:?}")),
+            } => TestFileModelEvent::FailedToLoad(Rc::clone(err)),
             FileModelEvent::FailedToSave { .. } => TestFileModelEvent::FailedToSave,
             FileModelEvent::FileUpdated { .. } => {
                 // For now, we don't handle file updated events in tests
@@ -180,20 +179,10 @@ fn test_load_missing_file() {
         // Check that the first event out is the failed to load event.
         let event = receiver.recv().await.expect("Could not receive the result");
         match event {
-            TestFileModelEvent::FailedToLoad(err) => {
-                // File not found error strings differ across operating systems.
-                #[cfg(not(windows))]
-                let os_error_message = "No such file or directory";
-                #[cfg(windows)]
-                let os_error_message = "The system cannot find the file specified.";
-
-                assert_eq!(
-                    err,
-                    format!(
-                        "IOError(Os {{ code: 2, kind: NotFound, message: \"{os_error_message}\" }})"
-                    )
-                );
-            }
+            TestFileModelEvent::FailedToLoad(err) => match err.as_ref() {
+                FileLoadError::IOError(error) => assert_eq!(error.kind(), io::ErrorKind::NotFound),
+                other => panic!("Expected a missing file error, got {other:?}"),
+            },
             _ => panic!("Failed to load file"),
         }
     });
@@ -357,42 +346,3 @@ fn test_a_failed_open_registers_no_watcher() {
 }
 
 static TEST_FILE_CONTENT: &[u8] = include_bytes!("../test_data/test_file.rs");
-
-#[test]
-fn remote_move_reports_disconnected_host_through_future_and_event() {
-    App::test((), |mut app| async move {
-        app.add_singleton_model(RemoteServerManager::new);
-        let files = app.add_singleton_model(FileModel::new);
-        let (tx, rx) = unbounded();
-        app.update(|ctx| {
-            ctx.subscribe_to_model(&files, move |_, event, _| {
-                if let FileModelEvent::FailedToSave { id, error } = event {
-                    tx.try_send((*id, error.clone())).unwrap();
-                }
-            });
-        });
-        let file_id = files.update(&mut app, |model, _| {
-            model.register_remote_file(
-                HostId::new("disconnected-host".to_owned()),
-                StandardizedPath::try_new("/repo/source.txt").unwrap(),
-            )
-        });
-        let future = files
-            .update(&mut app, |model, ctx| {
-                model.rename_and_save(
-                    file_id,
-                    PathBuf::from("/repo/target.txt"),
-                    "updated\n".to_owned(),
-                    ContentVersion::new(),
-                    ctx,
-                )
-            })
-            .expect("remote move must dispatch without a local file path");
-
-        let error = future.await.unwrap_err();
-        assert!(matches!(&*error, FileSaveError::RemoteError(_)));
-        let (event_id, event_error) = rx.recv().await.unwrap();
-        assert_eq!(event_id, file_id);
-        assert_eq!(error.to_string(), event_error.to_string());
-    });
-}

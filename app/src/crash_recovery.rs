@@ -20,7 +20,6 @@ lazy_static! {
     static ref IS_CRASH_RECOVERY_PROCESS_RUNNING: RwLock<bool> = RwLock::new(false);
 }
 
-#[cfg_attr(not(feature = "crash_reporting"), allow(dead_code))]
 pub fn is_crash_recovery_process_running() -> bool {
     *IS_CRASH_RECOVERY_PROCESS_RUNNING.read()
 }
@@ -110,8 +109,6 @@ impl CrashRecoveryProcess {
             );
 
             // Uninitialize sentry (ensuring any remaining events get flushed) before hard exiting.
-            #[cfg(feature = "crash_reporting")]
-            crate::crash_reporting::uninit_sentry();
 
             std::process::exit(1);
         }
@@ -229,7 +226,6 @@ impl CrashRecovery {
                 let user_preferences = ctx.private_user_preferences();
                 let launch_mode = crate::LaunchMode::App {
                     args: warp_cli::AppArgs::default(),
-                    api_key: None,
                 };
                 crate::crash_recovery::CrashRecovery::new(&launch_mode, user_preferences)
             })

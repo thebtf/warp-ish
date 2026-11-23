@@ -88,7 +88,7 @@ pub fn render_pane_header_buttons<A: ActionPayload, B: ActionPayload>(
         row.add_child(render_pane_overflow_button::<A, B>(
             appearance,
             header_ctx.overflow_button_mouse_state.clone(),
-            &header_ctx.overflow_button_position_id,
+            header_ctx.overflow_button_position_id,
             icon_color,
             button_size,
         ));

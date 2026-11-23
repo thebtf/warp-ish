@@ -133,6 +133,8 @@ impl Drop for PseudoConsoleChild {
 
 #[derive(Error, Debug)]
 pub enum PtySpawnError {
+    #[error("Failed to prepare isolated PowerShell history: {0:#}")]
+    PrepareFixtureHistoryFailed(#[source] std::io::Error),
     #[error("Could not create anonymous pipes for PTY input/output: {0:#}")]
     CreateAnonymousPipesFailed(#[source] std::io::Error),
     #[error("Could not create pipe for PTY input/output: {0:#}")]
@@ -166,7 +168,8 @@ pub(super) fn spawn(
     event_loop_tx: mio_channel::Sender<writeable_pty::Message>,
 ) -> Result<PtySpawnInfo, PtySpawnError> {
     let conpty_api = unsafe { ConptyApi::load() }?;
-    let environment_block = get_shell_environment_variables(&options);
+    let environment_block = get_shell_environment_variables(&options)
+        .map_err(PtySpawnError::PrepareFixtureHistoryFailed)?;
 
     let PtyOptions {
         size,

@@ -7,7 +7,7 @@ pub struct SearchConfig {
 }
 
 /// A single global search match: one line in one file, which may live on
-/// the local filesystem or on a remote host.
+/// the local filesystem.
 #[derive(Clone, Debug)]
 pub struct GlobalSearchMatch {
     pub location: LocalOrRemotePath,

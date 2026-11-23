@@ -20,52 +20,47 @@ fn initialize_deps(app: &mut App) {
 }
 
 #[test]
-fn test_apply_v4a_final_bytes() {
-    use ai::agent::action::{AIAgentActionType, FileEdit};
-    use ai::diff_validation::{DiffType, ParsedDiff, V4AHunk, fuzzy_match_v4a_diffs};
-    use warp_multi_agent_api::message::tool_call::{ApplyFileDiffs, apply_file_diffs};
-
+fn test_apply_diff_hunks_preserves_final_bytes() {
     App::test((), |mut app| async move {
         initialize_deps(&mut app);
-        let fixtures: Vec<serde_json::Value> = serde_json::from_str(include_str!(
-            "../../../../crates/ai/src/diff_validation/testdata/blank_lines.json"
-        ))
-        .unwrap();
-        for fixture in fixtures {
-            let hunk: V4AHunk = serde_json::from_value(fixture["dual"].clone()).unwrap();
-            let call = ApplyFileDiffs {
-                v4a_updates: vec![apply_file_diffs::V4aFileUpdate {
-                    file_path: "fixture.txt".into(),
-                    hunks: vec![apply_file_diffs::v4a_file_update::Hunk {
-                        change_context: hunk.change_context,
-                        pre_context: hunk.pre_context,
-                        old: hunk.old,
-                        new: hunk.new,
-                        post_context: hunk.post_context,
-                        line_data: hunk.line_data.map(|data| {
-                            apply_file_diffs::v4a_file_update::hunk::LineData {
-                                pre_context: data.pre_context,
-                                old: data.old,
-                                new: data.new,
-                                post_context: data.post_context,
-                            }
-                        }),
-                    }],
-                    ..Default::default()
-                }],
-                ..Default::default()
-            };
-            let AIAgentActionType::RequestFileEdits { file_edits, .. } = call.into() else {
-                panic!("expected file edits");
-            };
-            let FileEdit::Edit(ParsedDiff::V4AEdit { hunks, .. }) = &file_edits[0] else {
-                panic!("expected V4A edit");
-            };
-            let initial = fixture["initial"].as_str().unwrap();
-            let diff = fuzzy_match_v4a_diffs("fixture.txt", hunks, None, initial);
-            let DiffType::Update { deltas, .. } = diff.diff_type else {
-                panic!("expected update");
-            };
+        // Editor inputs from the V4A final-bytes regression after hunk matching.
+        let cases = [
+            ("blank_deletion_preceding_context", "before\n\n", 2..3, "", "before\n"),
+            (
+                "trailing_blank_wrong_occurrence",
+                "x\nKEEP\nx\n\nend\n",
+                3..5,
+                "y",
+                "x\nKEEP\ny\nend\n",
+            ),
+            ("empty_file_text", "", 1..1, "x", "x"),
+            ("empty_file_blank", "", 1..1, "\n", "\n"),
+            ("empty_file_trailing_blank", "", 1..1, "x\n\n", "x\n\n"),
+            ("insert_both_contexts", "before\nafter\n", 2..2, "\n", "before\n\nafter\n"),
+            ("insert_preceding_context", "before\nafter\n", 2..2, "x\n\n", "before\nx\n\nafter\n"),
+            ("insert_following_context", "before\nafter\n", 2..2, "\n", "before\n\nafter\n"),
+            ("eof_blank_insertion", "before\n", 2..2, "\n", "before\n\n"),
+            ("eof_text_insertion", "before\n", 2..2, "x", "before\nx\n"),
+            ("all_blank_deletion", "\n\n", 1..3, "\n", "\n"),
+            (
+                "pre_context_trailing_blank",
+                "x\nKEEP\nold\nx\n\nold\n",
+                6..7,
+                "new",
+                "x\nKEEP\nold\nx\n\nnew\n",
+            ),
+            (
+                "post_context_trailing_blank",
+                "old\nx\nKEEP\nold\nx\n\n",
+                4..5,
+                "new",
+                "old\nx\nKEEP\nnew\nx\n\n",
+            ),
+            ("cr_legacy_replacement", "x\n", 1..2, "y\r", "y\n"),
+            ("cr_empty_file", "", 1..1, "x\r", "x\r"),
+            ("unicode_tabs", "\tpré\n旧\nfin\n", 2..3, "新\n\n", "\tpré\n新\n\nfin\n"),
+        ];
+        for (name, initial, replacement_line_range, insertion, expected) in cases {
             let editor = mock_model(&mut app, initial, ContentVersion::new());
             // LF fixtures must not inherit the platform default for empty buffers.
             editor.update(&mut app, |editor, ctx| {
@@ -74,21 +69,21 @@ fn test_apply_v4a_final_bytes() {
                 });
             });
             layout_model(&mut app, &editor).await;
-            editor.update(&mut app, |editor, ctx| editor.apply_diffs(deltas, ctx));
+            let delta = DiffDelta {
+                replacement_line_range,
+                insertion: insertion.to_owned(),
+            };
+            editor.update(&mut app, |editor, ctx| editor.apply_diffs(vec![delta], ctx));
             editor.read(&app, |editor, ctx| {
                 assert_eq!(
                     editor
                         .content()
                         .as_ref(ctx)
                         .text_with_line_ending()
-                        .as_str(),
-                    fixture
-                        .get("gui_final")
-                        .unwrap_or(&fixture["final"])
                         .as_str()
-                        .unwrap(),
-                    "{}",
-                    fixture["name"]
+                        .as_bytes(),
+                    expected.as_bytes(),
+                    "{name}"
                 );
             });
         }

@@ -14,8 +14,6 @@ pub enum ExecutionMode {
     Tui,
     /// Warp is running as a CLI.
     Sdk,
-    /// Warp is running as the remote server daemon.
-    RemoteServerDaemon,
 }
 
 impl ExecutionMode {
@@ -26,7 +24,6 @@ impl ExecutionMode {
             ExecutionMode::App => "warp-app",
             ExecutionMode::Tui => "warp-tui",
             ExecutionMode::Sdk => "warp-cli",
-            ExecutionMode::RemoteServerDaemon => "warp-remote-server-daemon",
         }
     }
 
@@ -38,15 +35,11 @@ impl ExecutionMode {
     /// and the TUI receive an authoritative PATH from their own launcher (an interactive shell
     /// or a CLI invocation) before Warp starts, so inheriting it is safe and is the only PATH
     /// available to a fresh SDK process before terminal bootstrap populates
-    /// `mcp_execution_path`. The remote server daemon is headless and long-lived with no user
-    /// present to open a terminal and populate that setting, and no window to show the
-    /// alternative's failure toast in, so it also inherits; since inheritance only ever fills
-    /// in a missing path rather than overriding a configured one, that's a better failure mode
-    /// than refusing to start the server.
+    /// `mcp_execution_path`.
     pub fn can_inherit_process_path_for_mcp(&self) -> bool {
         match self {
             ExecutionMode::App => false,
-            ExecutionMode::Tui | ExecutionMode::Sdk | ExecutionMode::RemoteServerDaemon => true,
+            ExecutionMode::Tui | ExecutionMode::Sdk => true,
         }
     }
 }
@@ -58,32 +51,13 @@ impl ExecutionMode {
 pub struct AppExecutionMode {
     mode: ExecutionMode,
     is_sandboxed: bool,
-    is_headless: bool,
 }
 
 impl AppExecutionMode {
     /// Create an `AppExecutionMode` model with the execution mode set.
-    pub fn new(mode: ExecutionMode, is_sandboxed: bool, ctx: &mut ModelContext<Self>) -> Self {
-        let is_headless = match mode {
-            ExecutionMode::App | ExecutionMode::Tui => false,
-            ExecutionMode::Sdk | ExecutionMode::RemoteServerDaemon => true,
-        };
-        Self::new_with_headlessness(mode, is_sandboxed, is_headless, ctx)
-    }
-
-    /// Create an `AppExecutionMode` with the launch's interactive capability set explicitly.
-    pub fn new_with_headlessness(
-        mode: ExecutionMode,
-        is_sandboxed: bool,
-        is_headless: bool,
-        _ctx: &mut ModelContext<Self>,
-    ) -> Self {
+    pub fn new(mode: ExecutionMode, is_sandboxed: bool, _ctx: &mut ModelContext<Self>) -> Self {
         let _ = GLOBAL_EXECUTION_MODE.set(mode);
-        Self {
-            mode,
-            is_sandboxed,
-            is_headless,
-        }
+        Self { mode, is_sandboxed }
     }
 
     /// True if running as an interactive app client.
@@ -137,24 +111,11 @@ impl AppExecutionMode {
         self.is_app()
     }
 
-    /// Whether telemetry should be sent synchronously at shutdown.
-    /// In TUI, CLI, and daemon modes, we synchronously send events at shutdown because there's
-    /// a higher likelihood that they will be lost otherwise.
-    pub fn send_telemetry_at_shutdown(&self) -> bool {
-        matches!(
-            self.mode,
-            ExecutionMode::Tui | ExecutionMode::Sdk | ExecutionMode::RemoteServerDaemon
-        )
-    }
-
     /// If true, the app is running autonomously, without a user present.
     /// Wherever possible, prefer more targeted capability checks like
     /// [`Self::can_autostart_mcp_servers`].
     pub fn is_autonomous(&self) -> bool {
-        matches!(
-            self.mode,
-            ExecutionMode::Sdk | ExecutionMode::RemoteServerDaemon
-        )
+        self.mode == ExecutionMode::Sdk
     }
 
     /// Returns the client ID to report to the server.
@@ -172,11 +133,6 @@ impl AppExecutionMode {
     /// on a user machine.
     pub fn is_sandboxed(&self) -> bool {
         self.is_sandboxed
-    }
-
-    /// Whether this launch has no interactive surface where a user can respond.
-    pub fn is_headless(&self) -> bool {
-        self.is_headless
     }
 }
 

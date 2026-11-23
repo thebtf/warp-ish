@@ -34,15 +34,6 @@ define_settings_group!(CodeSettings, settings: [
         toml_path: "code.indexing.agent_mode_codebase_context_auto_indexing",
         description: "Whether automatic codebase indexing is enabled.",
     },
-    // Whether or not the user has manually dismissed the code toolbelt new feature popup.
-    dismissed_code_toolbelt_new_feature_popup: DismissedCodeToolbeltNewFeaturePopup {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
-        private: true,
-    },
     // Controls whether the project explorer / file tree appears in the tools panel.
     show_project_explorer: ShowProjectExplorer {
         type: bool,

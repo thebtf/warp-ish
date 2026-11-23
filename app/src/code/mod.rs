@@ -27,7 +27,7 @@ pub mod inline_diff;
 pub mod language_server_shutdown_manager;
 #[cfg(not(target_family = "wasm"))]
 pub mod lsp_logs;
-pub mod lsp_telemetry;
+pub(crate) mod programming_language;
 
 #[derive(Debug, thiserror::Error)]
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
@@ -38,8 +38,6 @@ pub enum ImmediateSaveError {
     FailedToSave(#[from] FileSaveError),
     #[error("There is no file tab currently selected")]
     NoActiveFileTab,
-    #[error("Remote session disconnected")]
-    RemoteDisconnected,
 }
 
 impl ErrorExt for ImmediateSaveError {
@@ -47,7 +45,6 @@ impl ErrorExt for ImmediateSaveError {
         match self {
             ImmediateSaveError::NoFileId | ImmediateSaveError::NoActiveFileTab => true,
             ImmediateSaveError::FailedToSave(err) => err.is_actionable(),
-            ImmediateSaveError::RemoteDisconnected => false,
         }
     }
 }

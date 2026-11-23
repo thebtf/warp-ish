@@ -11,16 +11,24 @@ fn main() -> Result<()> {
     let mut state = ChannelState::new(
         Channel::Oss,
         ChannelConfig {
+            #[cfg(windows)]
+            app_id: AppId::windows_warp_ish(),
+            #[cfg(not(windows))]
             app_id: AppId::new("dev", "warp", "WarpOss"),
+            #[cfg(windows)]
+            logfile_name: "warp-ish.log".into(),
+            #[cfg(not(windows))]
             logfile_name: "warp-oss.log".into(),
             server_config: WarpServerConfig::production(),
             oz_config: OzConfig::production(),
-            telemetry_config: None,
-            crash_reporting_config: None,
             autoupdate_config: None,
             mcp_static_config: None,
         },
     );
+    #[cfg(windows)]
+    {
+        state = state.with_windows_warp_ish_data_profile_from_env()?;
+    }
     if cfg!(debug_assertions) {
         state = state.with_additional_features(warp_core::features::DEBUG_FLAGS);
     }

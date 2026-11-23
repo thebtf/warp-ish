@@ -78,35 +78,6 @@ function Add-DirectoryToPathIfPresent {
     }
 }
 
-function Add-WinGetPackageCommandToPath {
-    param(
-        [string]$CommandName,
-        [string]$PackageId
-    )
-
-    if (Get-Command -Name $CommandName -Type Application -ErrorAction SilentlyContinue) {
-        return
-    }
-
-    $winGetPackagesDir = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'
-    if (-not (Test-Path -Path $winGetPackagesDir -PathType Container)) {
-        return
-    }
-
-    $escapedPackageId = [WildcardPattern]::Escape($PackageId)
-    $packageDirs = Get-ChildItem -Path $winGetPackagesDir -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -like "$escapedPackageId*" }
-
-    foreach ($packageDir in $packageDirs) {
-        $command = Get-ChildItem -Path $packageDir.FullName -Filter "$CommandName.exe" -Recurse -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-        if ($command) {
-            Add-DirectoryToPathIfPresent $command.DirectoryName
-            return
-        }
-    }
-}
-
 function Use-LibclangIfInstalled {
     $candidateDirs = @(
         "$env:ProgramFiles\LLVM\bin",
@@ -233,10 +204,6 @@ winget install jqlang.jq
 
 # CMake is needed to build some dependencies, e.g.: sentry-contrib-native.
 winget install -e --id Kitware.CMake
-
-# Protoc is required by prost-build for warp-proto-apis generated crates.
-winget install -e --id Google.Protobuf
-Add-WinGetPackageCommandToPath -CommandName 'protoc' -PackageId 'Google.Protobuf'
 
 # LLVM provides libclang.dll, which is required by bindgen-based build scripts.
 winget install -e --id LLVM.LLVM

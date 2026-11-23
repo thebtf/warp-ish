@@ -7,7 +7,6 @@ use super::{ChipResult, ChipValue, ContextChipKind};
 use crate::menu::{MenuItem, MenuItemFields};
 use crate::settings::WarpPromptSeparator;
 use crate::terminal::model::session::Sessions;
-use crate::terminal::session_settings::{SessionSettings, ToolbarChipSelection};
 use crate::terminal::view::{ContextMenuAction, PromptPart, PromptPosition, TerminalAction};
 
 /// The type of warp prompt being used
@@ -111,44 +110,22 @@ impl PromptType {
     }
 
     pub fn chips(&self, ctx: &AppContext) -> Vec<ChipResult> {
-        self.snapshot(ctx).chips().clone()
+        self.snapshot(ctx)
+            .chips()
+            .iter()
+            .filter(|chip| !chip.kind().is_retired())
+            .cloned()
+            .collect()
     }
 
-    pub fn agent_view_chips(&self, ctx: &AppContext) -> Vec<ChipResult> {
-        let chip_kinds = SessionSettings::as_ref(ctx)
-            .agent_footer_chip_selection
-            .all_chips();
-        self.resolve_chip_kinds(chip_kinds, ctx)
-    }
-
-    pub fn agent_view_left_chips(&self, ctx: &AppContext) -> Vec<ChipResult> {
-        let chip_kinds = SessionSettings::as_ref(ctx)
-            .agent_footer_chip_selection
-            .left_chips();
-        self.resolve_chip_kinds(chip_kinds, ctx)
-    }
-
-    pub fn agent_view_right_chips(&self, ctx: &AppContext) -> Vec<ChipResult> {
-        let chip_kinds = SessionSettings::as_ref(ctx)
-            .agent_footer_chip_selection
-            .right_chips();
-        self.resolve_chip_kinds(chip_kinds, ctx)
-    }
-
-    pub fn cli_agent_chips(&self, ctx: &AppContext) -> Vec<ChipResult> {
-        let chip_kinds = SessionSettings::as_ref(ctx)
-            .cli_agent_footer_chip_selection
-            .all_chips();
-        self.resolve_chip_kinds(chip_kinds, ctx)
-    }
-
-    fn resolve_chip_kinds(
+    pub(crate) fn resolve_chip_kinds(
         &self,
-        chip_kinds: Vec<ContextChipKind>,
+        chip_kinds: impl IntoIterator<Item = ContextChipKind>,
         ctx: &AppContext,
     ) -> Vec<ChipResult> {
         chip_kinds
             .into_iter()
+            .filter(|kind| !kind.is_retired())
             .filter_map(|chip_kind| match self {
                 Self::Dynamic { prompt } => prompt.as_ref(ctx).latest_chip_result(&chip_kind),
                 Self::Static { snapshot } => snapshot

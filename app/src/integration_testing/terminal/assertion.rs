@@ -28,6 +28,18 @@ lazy_static::lazy_static! {
     pub static ref PYTHON_PROMPT_READY: Regex = Regex::new(">>> $").expect("python prompt regex should not fail to compile");
 }
 
+pub fn assert_open_in_warp_banner_open(tab_index: usize, pane_index: usize) -> AssertionCallback {
+    Box::new(move |app, window_id| {
+        let terminal = terminal_view(app, window_id, tab_index, pane_index);
+        terminal.read(app, |view, _ctx| {
+            async_assert!(
+                view.is_open_in_warp_banner_open(),
+                "Expected the 'Open in Warp' banner to be open"
+            )
+        })
+    })
+}
+
 pub fn validate_block_output<T>(
     expected_output: &T,
     tab_idx: usize,

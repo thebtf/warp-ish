@@ -1,18 +1,11 @@
-//! Unified diff state module.
-//!
-//! [`DiffStateModel`] is an enum that provides a unified API over local and remote models.
-//! It holds one of [`LocalDiffStateModel`] or [`RemoteDiffStateModel`] and dispatches
-//! operations to whichever is active.
-//! All consumers should use `DiffStateModel` rather than accessing sub-models directly.
+//! Local Git diff state and its view-facing event model.
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use warp_core::SessionId;
-use warp_util::remote_path::RemotePath;
 use warp_util::standardized_path::StandardizedPath;
 use warpui::{AppContext, ModelContext, ModelHandle};
 
@@ -24,20 +17,11 @@ pub use local::LocalDiffStateModel;
 #[cfg(feature = "local_fs")]
 pub(crate) use local::diff_metadata_against_head;
 
-mod remote;
-pub use remote::RemoteDiffStateModel;
-
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 mod error;
 pub(crate) use error::DiffStateError;
 
-/// What to chain after a commit: commit only, commit + push, or commit + push
-/// + create-PR. The single shared commit-chain vocabulary, used end to end: the
-/// commit dialog stores the user's selection as this, both the local
-/// (`git_actions::run_commit_chain`) and remote (`DiffStateModel::git_commit_chain`)
-/// backends accept it, and it's converted to the wire enum
-/// (`proto::GitCommitChainMode`) at the manager boundary via the `From` impl in
-/// the `diff_state_proto` module.
+/// What to chain after a commit: commit only, commit and push, or commit and create a PR.
 #[allow(clippy::enum_variant_names)] // `Commit` prefix is intentional: every chain starts with a commit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommitChainMode {
@@ -352,10 +336,7 @@ pub struct DiffMetadata {
 pub struct DiffMetadataAgainstBase {
     pub aggregate_stats: DiffStats,
     /// Per-file change entries (path + additions/deletions) for this base.
-    /// Populated from the same numstat that produces `aggregate_stats`, so the
-    /// git dialog's Changes box can render without a working-tree read — this
-    /// is what lets the box populate for remote repos, where the list rides
-    /// along in synced metadata.
+    /// Populated from the same numstat that produces the aggregate statistics.
     pub files: Vec<FileChangeEntry>,
 }
 
@@ -385,7 +366,6 @@ pub enum DiffStateModelEvent {
     /// Event dispatched when new diffs are computed (full reload).
     NewDiffsComputed {
         diffs: Option<Arc<GitDiffWithBaseContent>>,
-        load_duration: Option<Duration>,
     },
     /// Event dispatched when a single file's diff is updated incrementally.
     SingleFileUpdated {
@@ -398,24 +378,17 @@ pub enum DiffStateModelEvent {
     /// The remote connection was lost. Stale diffs should be preserved while
     /// the model waits for a new subscription.
     ConnectionLost,
-    /// Branch list received from the backend (local git or remote server).
+    /// Branch list received from local Git.
     BranchesReceived(Vec<BranchEntry>),
-    /// A remote git operation completed. The model has already applied any
+    /// A Git operation completed. The model has already applied any
     /// successful metadata delta to the cached metadata.
     GitOpCompleted(GitOpResult),
-    /// An AI-generated commit message arrived from the remote daemon (issued
-    /// at commit-dialog open). `Ok` carries the message, `Err` the error
-    /// string. The `GitDialog` populates its message editor from this; the
-    /// local path fills the editor directly without going through an event.
-    CommitMessageGenerated(Result<String, String>),
     /// Committed branch files (`merge_base(HEAD, main)..HEAD`) arrived for the
-    /// Create PR dialog's Changes box. Fetched on dialog open and delivered the
-    /// same way for both backends: the local model computes them off-thread and
-    /// emits this; the remote model emits it on the daemon's RPC response.
+    /// Create PR dialog's Changes box. Fetched on dialog open from committed history.
     BranchCommittedFilesReceived(Vec<FileChangeEntry>),
 }
 
-/// Result of a remote git operation, emitted via
+/// Result of a Git operation, emitted via
 /// `DiffStateModelEvent::GitOpCompleted`. The model applies the post-op
 /// delta before emitting, so the dialog only handles UI concerns.
 #[derive(Debug, Clone)]
@@ -429,17 +402,8 @@ pub enum GitOpResult {
     PrCreated(Result<PrInfo, String>),
 }
 
-// ── Unified model ────────────────────────────────────────────────────────
-
-/// Unified diff state model that dispatches to a local or remote backend.
-///
-/// Only one variant is populated at a time, since a diff state belongs to
-/// exactly one repository (either local or remote). All consumers should
-/// interact with this enum rather than accessing sub-models directly.
-pub enum DiffStateModel {
-    Local(ModelHandle<LocalDiffStateModel>),
-    Remote(ModelHandle<RemoteDiffStateModel>),
-}
+/// The Code Review view's local diff model.
+pub struct DiffStateModel(ModelHandle<LocalDiffStateModel>);
 
 impl warpui::Entity for DiffStateModel {
     type Event = DiffStateModelEvent;
@@ -448,33 +412,14 @@ impl warpui::Entity for DiffStateModel {
 impl DiffStateModel {
     // ── Construction ─────────────────────────────────────────────────
 
-    /// Creates a new local-backed `DiffStateModel`. The wrapper subscribes
+    /// Creates a new local `DiffStateModel`. The wrapper subscribes
     /// to the inner model so it can forward events.
     pub fn new_local(path: PathBuf, ctx: &mut ModelContext<Self>) -> Self {
         let repo_path = Some(path.display().to_string());
         let local = ctx
             .add_model(|ctx| LocalDiffStateModel::new(repo_path, BackendOrigin::ClientLocal, ctx));
         ctx.subscribe_to_model(&local, |me, _, event, ctx| me.forward_event(event, ctx));
-        Self::Local(local)
-    }
-
-    /// Creates a new remote-backed `DiffStateModel`. The model is keyed by
-    /// `(host_id, repo, mode)` and shared across sessions viewing the same
-    /// repo. `preferred_session` is the session that opened this review (when
-    /// known): `GetDiffState` is session-scoped, so the manager dispatches it
-    /// over that session when it's connected and falls back to any connected
-    /// session for the host otherwise. Callers must ensure a session for the
-    /// host is connected before constructing.
-    pub fn new_remote(
-        remote_path: RemotePath,
-        preferred_session: Option<SessionId>,
-        ctx: &mut ModelContext<Self>,
-    ) -> Self {
-        let remote = ctx.add_model(|ctx| {
-            RemoteDiffStateModel::new(remote_path, DiffMode::default(), preferred_session, ctx)
-        });
-        ctx.subscribe_to_model(&remote, |me, _, event, ctx| me.forward_event(event, ctx));
-        Self::Remote(remote)
+        Self(local)
     }
 
     // ── Event forwarding ─────────────────────────────────────────────
@@ -484,13 +429,9 @@ impl DiffStateModel {
             DiffStateModelEvent::CurrentBranchChanged => {
                 ctx.emit(DiffStateModelEvent::CurrentBranchChanged);
             }
-            DiffStateModelEvent::NewDiffsComputed {
-                diffs,
-                load_duration,
-            } => {
+            DiffStateModelEvent::NewDiffsComputed { diffs } => {
                 ctx.emit(DiffStateModelEvent::NewDiffsComputed {
                     diffs: diffs.clone(),
-                    load_duration: *load_duration,
                 });
             }
             DiffStateModelEvent::SingleFileUpdated { path, diff } => {
@@ -511,9 +452,6 @@ impl DiffStateModel {
             DiffStateModelEvent::GitOpCompleted(result) => {
                 ctx.emit(DiffStateModelEvent::GitOpCompleted(result.clone()));
             }
-            DiffStateModelEvent::CommitMessageGenerated(result) => {
-                ctx.emit(DiffStateModelEvent::CommitMessageGenerated(result.clone()));
-            }
             DiffStateModelEvent::BranchCommittedFilesReceived(files) => {
                 ctx.emit(DiffStateModelEvent::BranchCommittedFilesReceived(
                     files.clone(),
@@ -522,169 +460,94 @@ impl DiffStateModel {
         }
     }
 
-    // ── Unified read API ─────────────────────────────────────────────
+    // ── Read API ─────────────────────────────────────────────
 
     pub(crate) fn get(&self, ctx: &AppContext) -> DiffState {
-        match self {
-            Self::Local(m) => m.as_ref(ctx).get(),
-            Self::Remote(m) => m.as_ref(ctx).get(),
-        }
+        self.0.as_ref(ctx).get()
     }
 
     pub(crate) fn diff_mode(&self, ctx: &AppContext) -> DiffMode {
-        match self {
-            Self::Local(m) => m.as_ref(ctx).diff_mode(),
-            Self::Remote(m) => m.as_ref(ctx).diff_mode(),
-        }
+        self.0.as_ref(ctx).diff_mode()
     }
 
     pub(crate) fn get_uncommitted_stats(&self, ctx: &AppContext) -> Option<DiffStats> {
-        match self {
-            Self::Local(m) => m.as_ref(ctx).get_uncommitted_stats(),
-            Self::Remote(m) => m.as_ref(ctx).get_uncommitted_stats(),
-        }
+        self.0.as_ref(ctx).get_uncommitted_stats()
     }
 
-    /// Per-file entries for the uncommitted-vs-HEAD changes, sourced from
-    /// synced metadata (`against_head.files`). The per-file counterpart to
-    /// `get_uncommitted_stats`. Empty until metadata loads. Available for both
-    /// backends, so the commit dialog's Changes box works for remote repos
-    /// without reading the working tree.
+    /// Per-file entries for the uncommitted changes against HEAD.
     pub(crate) fn uncommitted_file_entries<'a>(
         &self,
         ctx: &'a AppContext,
     ) -> &'a [FileChangeEntry] {
-        match self {
-            Self::Local(m) => m.as_ref(ctx).uncommitted_file_entries(),
-            Self::Remote(m) => m.as_ref(ctx).uncommitted_file_entries(),
-        }
+        self.0.as_ref(ctx).uncommitted_file_entries()
     }
 
     pub(crate) fn get_main_branch_name(&self, ctx: &AppContext) -> Option<String> {
-        match self {
-            Self::Local(m) => m.as_ref(ctx).get_main_branch_name(),
-            Self::Remote(m) => m.as_ref(ctx).get_main_branch_name(),
-        }
+        self.0.as_ref(ctx).get_main_branch_name()
     }
 
     pub fn get_current_branch_name(&self, ctx: &AppContext) -> Option<String> {
-        match self {
-            Self::Local(m) => m.as_ref(ctx).get_current_branch_name(),
-            Self::Remote(m) => m.as_ref(ctx).get_current_branch_name(),
-        }
+        self.0.as_ref(ctx).get_current_branch_name()
     }
 
     pub(crate) fn is_on_main_branch(&self, ctx: &AppContext) -> bool {
-        match self {
-            Self::Local(m) => m.as_ref(ctx).is_on_main_branch(),
-            Self::Remote(m) => m.as_ref(ctx).is_on_main_branch(),
-        }
+        self.0.as_ref(ctx).is_on_main_branch()
     }
 
     pub(crate) fn unpushed_commits<'a>(&self, ctx: &'a AppContext) -> &'a [Commit] {
-        match self {
-            Self::Local(m) => m.as_ref(ctx).unpushed_commits(),
-            Self::Remote(m) => m.as_ref(ctx).unpushed_commits(),
-        }
+        self.0.as_ref(ctx).unpushed_commits()
     }
 
     pub(crate) fn upstream_ref<'a>(&self, ctx: &'a AppContext) -> Option<&'a str> {
-        match self {
-            Self::Local(m) => m.as_ref(ctx).upstream_ref(),
-            Self::Remote(m) => m.as_ref(ctx).upstream_ref(),
-        }
+        self.0.as_ref(ctx).upstream_ref()
     }
 
     pub(crate) fn upstream_differs_from_main(&self, ctx: &AppContext) -> bool {
-        match self {
-            Self::Local(m) => m.as_ref(ctx).upstream_differs_from_main(),
-            Self::Remote(m) => m.as_ref(ctx).upstream_differs_from_main(),
-        }
+        self.0.as_ref(ctx).upstream_differs_from_main()
     }
 
     pub(crate) fn is_git_operation_blocked(&self, ctx: &AppContext) -> bool {
-        match self {
-            Self::Local(m) => m.as_ref(ctx).is_git_operation_blocked(ctx),
-            // Remote git ops rely on the daemon-side `.git` sentinel as the
-            // authoritative guard, so the client doesn't pre-emptively block.
-            Self::Remote(_) => false,
-        }
+        self.0.as_ref(ctx).is_git_operation_blocked(ctx)
     }
 
     pub(crate) fn has_head(&self, ctx: &AppContext) -> bool {
-        match self {
-            Self::Local(m) => m.as_ref(ctx).has_head(),
-            Self::Remote(m) => m.as_ref(ctx).has_head(),
-        }
+        self.0.as_ref(ctx).has_head()
     }
 
-    // ── Unified write API ─────────────────────────────────────────────
+    // ── Write API ─────────────────────────────────────────────
 
-    /// `preferred_session` is the session that triggered this call (the
-    /// session showing the review). It's forwarded per-call to the remote
-    /// model so the `GetDiffState` RPC rides that session; the local backend
-    /// ignores it. The remote model never caches it.
     pub(crate) fn set_diff_mode(
         &self,
         mode: DiffMode,
         should_fetch_base: bool,
-        track_load_duration: bool,
-        preferred_session: Option<SessionId>,
+        _preferred_session: Option<SessionId>,
         ctx: &mut ModelContext<Self>,
     ) {
-        match self {
-            Self::Local(local) => {
-                local.update(ctx, |local, ctx| {
-                    local.set_diff_mode(mode, should_fetch_base, track_load_duration, ctx);
-                });
-            }
-            Self::Remote(model) => {
-                model.update(ctx, |model, ctx| {
-                    model.set_diff_mode(mode, track_load_duration, preferred_session, ctx);
-                });
-            }
-        }
+        self.0.update(ctx, |local, ctx| {
+            local.set_diff_mode(mode, should_fetch_base, ctx);
+        });
     }
 
     pub(crate) fn set_diff_mode_and_fetch_base(
         &self,
         mode: DiffMode,
-        preferred_session: Option<SessionId>,
+        _preferred_session: Option<SessionId>,
         ctx: &mut ModelContext<Self>,
     ) {
-        match self {
-            Self::Local(local) => {
-                local.update(ctx, |local, ctx| {
-                    local.set_diff_mode_and_fetch_base(mode, ctx);
-                });
-            }
-            Self::Remote(model) => {
-                model.update(ctx, |model, ctx| {
-                    model.set_diff_mode(mode, true, preferred_session, ctx);
-                });
-            }
-        }
+        self.0.update(ctx, |local, ctx| {
+            local.set_diff_mode_and_fetch_base(mode, ctx);
+        });
     }
 
     pub(crate) fn load_diffs_for_current_repo(
         &self,
         should_fetch_base: bool,
-        track_load_duration: bool,
-        preferred_session: Option<SessionId>,
+        _preferred_session: Option<SessionId>,
         ctx: &mut ModelContext<Self>,
     ) {
-        match self {
-            Self::Local(local) => {
-                local.update(ctx, |local, ctx| {
-                    local.load_diffs_for_current_repo(should_fetch_base, track_load_duration, ctx);
-                });
-            }
-            Self::Remote(remote) => {
-                remote.update(ctx, |remote, ctx| {
-                    remote.fetch_fresh_snapshot(track_load_duration, preferred_session, ctx);
-                });
-            }
-        }
+        self.0.update(ctx, |local, ctx| {
+            local.load_diffs_for_current_repo(should_fetch_base, ctx);
+        });
     }
 
     pub(crate) fn set_code_review_metadata_refresh_enabled(
@@ -692,40 +555,21 @@ impl DiffStateModel {
         enabled: bool,
         ctx: &mut ModelContext<Self>,
     ) {
-        match self {
-            Self::Local(local) => {
-                local.update(ctx, |local, ctx| {
-                    local.set_code_review_metadata_refresh_enabled(enabled, ctx);
-                });
-            }
-            Self::Remote(_) => {}
-        }
+        self.0.update(ctx, |local, ctx| {
+            local.set_code_review_metadata_refresh_enabled(enabled, ctx);
+        });
     }
 
     pub(crate) fn fetch_branches(&self, ctx: &mut ModelContext<Self>) {
-        match self {
-            Self::Local(local) => {
-                local.update(ctx, |local, ctx| {
-                    local.fetch_branches(ctx);
-                });
-            }
-            Self::Remote(model) => {
-                model.update(ctx, |model, ctx| {
-                    model.fetch_branches(ctx);
-                });
-            }
-        }
+        self.0.update(ctx, |local, ctx| {
+            local.fetch_branches(ctx);
+        });
     }
 
     pub(crate) fn refresh_metadata_after_git_operation(&self, ctx: &mut ModelContext<Self>) {
-        match self {
-            Self::Local(local) => {
-                local.update(ctx, |local, ctx| {
-                    local.refresh_metadata_after_git_operation(ctx);
-                });
-            }
-            Self::Remote(_) => {}
-        }
+        self.0.update(ctx, |local, ctx| {
+            local.refresh_metadata_after_git_operation(ctx);
+        });
     }
 
     pub(crate) fn discard_files(
@@ -735,18 +579,9 @@ impl DiffStateModel {
         branch_name: Option<String>,
         ctx: &mut ModelContext<Self>,
     ) {
-        match self {
-            Self::Local(local) => {
-                local.update(ctx, |local, ctx| {
-                    local.discard_files(file_infos, should_stash, branch_name, ctx);
-                });
-            }
-            Self::Remote(model) => {
-                model.update(ctx, |model, ctx| {
-                    model.discard_files(file_infos, should_stash, branch_name, ctx);
-                });
-            }
-        }
+        self.0.update(ctx, |local, ctx| {
+            local.discard_files(file_infos, should_stash, branch_name, ctx);
+        });
     }
 
     /// Runs a commit chain (commit, then optionally push/create-PR).
@@ -756,125 +591,49 @@ impl DiffStateModel {
         message: String,
         include_unstaged: bool,
         branch: String,
-        autogenerate_pr_content: bool,
         ctx: &mut ModelContext<Self>,
     ) {
-        match self {
-            Self::Local(local) => local.update(ctx, |local, ctx| {
-                local.git_commit_chain(
-                    mode,
-                    message,
-                    include_unstaged,
-                    branch,
-                    autogenerate_pr_content,
-                    ctx,
-                );
-            }),
-            Self::Remote(remote) => remote.update(ctx, |remote, ctx| {
-                remote.git_commit_chain(
-                    mode,
-                    message,
-                    include_unstaged,
-                    branch,
-                    autogenerate_pr_content,
-                    ctx,
-                );
-            }),
-        }
-    }
-
-    /// Issues an AI commit-message generation request.
-    pub(crate) fn generate_commit_message(
-        &self,
-        include_unstaged: bool,
-        branch_name: String,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        match self {
-            Self::Local(local) => local.update(ctx, |local, ctx| {
-                local.generate_commit_message(include_unstaged, branch_name, ctx);
-            }),
-            Self::Remote(remote) => remote.update(ctx, |remote, ctx| {
-                remote.generate_commit_message(include_unstaged, branch_name, ctx);
-            }),
-        }
+        self.0.update(ctx, |local, ctx| {
+            local.git_commit_chain(mode, message, include_unstaged, branch, ctx);
+        })
     }
 
     /// Pushes the given git branch to the remote origin.
     pub(crate) fn git_push(&self, branch: String, ctx: &mut ModelContext<Self>) {
-        match self {
-            Self::Local(local) => local.update(ctx, |local, ctx| {
-                local.git_push(branch, ctx);
-            }),
-            Self::Remote(remote) => remote.update(ctx, |remote, ctx| {
-                remote.git_push(branch, ctx);
-            }),
-        }
+        self.0.update(ctx, |local, ctx| {
+            local.git_push(branch, ctx);
+        })
     }
 
     /// Creates a PR for the current branch.
-    ///
-    /// When `autogenerate_content` is set, the PR title/body are AI-generated,
-    /// otherwise fallback to `gh pr create --fill`.
-    pub(crate) fn create_pr(
-        &self,
-        branch: String,
-        autogenerate_content: bool,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        match self {
-            Self::Local(local) => local.update(ctx, |local, ctx| {
-                local.create_pr(branch, autogenerate_content, ctx);
-            }),
-            Self::Remote(remote) => remote.update(ctx, |remote, ctx| {
-                remote.create_pr(branch, autogenerate_content, ctx);
-            }),
-        }
+    pub(crate) fn create_pr(&self, _branch: String, ctx: &mut ModelContext<Self>) {
+        self.0.update(ctx, |local, ctx| {
+            local.create_pr(ctx);
+        })
     }
 
-    /// Fetches the committed branch files (`merge_base(HEAD, main)..HEAD`) for
-    /// the Create PR dialog's Changes box. Both backends deliver the result via
-    /// `DiffStateModelEvent::BranchCommittedFilesReceived`: the local model
-    /// computes them from committed history off-thread; the remote model issues
-    /// the `GitGetCommittedBranchFiles` RPC. Committed-only, so uncommitted and
-    /// untracked changes are excluded — matching what the PR will contain.
+    /// Fetches committed branch files for the Create PR dialog.
     pub(crate) fn fetch_committed_branch_files(&self, ctx: &mut ModelContext<Self>) {
-        match self {
-            Self::Local(local) => local.update(ctx, |local, ctx| {
-                local.fetch_committed_branch_files(ctx);
-            }),
-            Self::Remote(model) => model.update(ctx, |model, ctx| {
-                model.fetch_committed_branch_files(ctx);
-            }),
-        }
+        self.0.update(ctx, |local, ctx| {
+            local.fetch_committed_branch_files(ctx);
+        })
     }
 
     #[cfg(feature = "local_fs")]
     pub(crate) fn stop_active_watcher(&self, ctx: &mut ModelContext<Self>) {
-        match self {
-            Self::Local(local) => {
-                local.update(ctx, |local, ctx| {
-                    local.stop_active_watcher(ctx);
-                });
-            }
-            Self::Remote(remote) => {
-                remote.update(ctx, |remote, ctx| {
-                    remote.unsubscribe(ctx);
-                });
-            }
-        }
+        self.0.update(ctx, |local, ctx| {
+            local.stop_active_watcher(ctx);
+        });
     }
 }
 
 #[cfg(test)]
 impl DiffStateModel {
-    /// Test-only constructor that creates a local-backend model without a
-    /// repository. All existing tests exercise local behavior; add a
-    /// `new_for_test_remote` variant when remote-backend tests are needed.
+    /// Test-only constructor for a model without a repository.
     pub fn new_for_test(ctx: &mut ModelContext<Self>) -> Self {
         let local = ctx.add_model(LocalDiffStateModel::new_for_test);
         ctx.subscribe_to_model(&local, |me, _, event, ctx| me.forward_event(event, ctx));
-        Self::Local(local)
+        Self(local)
     }
 }
 

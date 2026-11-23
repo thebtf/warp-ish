@@ -83,29 +83,6 @@ fn msys2_replacement_preserves_launch_mode_for_injected_bootstrap() {
 }
 
 #[test]
-fn recovery_uses_session_home_when_working_directory_is_missing() {
-    let home = tempdir().unwrap();
-    let missing_directory = home.path().join("missing");
-    let starter = ShellStarter::Direct(DirectShellStarter::new_for_test(
-        ShellType::Bash,
-        "/bin/bash".into(),
-        Vec::new(),
-    ));
-
-    let (restored, fallback) = starter
-        .recovery_working_directory(missing_directory.to_str(), home.path().to_str())
-        .unwrap();
-
-    assert_eq!(restored, home.path().to_str().unwrap());
-    assert!(fallback);
-    assert!(
-        starter
-            .recovery_working_directory(missing_directory.to_str(), None,)
-            .is_err()
-    );
-}
-
-#[test]
 fn test_program_invalid_bash() {
     // This test assumes there is no bash binary at /some/weird/path/bash.
     let shell_path = "/some/weird/path/bash".to_owned();

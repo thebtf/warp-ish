@@ -2,6 +2,7 @@ use std::sync::LazyLock;
 
 use ipc::ServerBuilder;
 use parking_lot::Mutex;
+use warp_core::AppId;
 use warp_core::channel::ChannelState;
 use warp_errors::report_error;
 use warpui::{Entity, ModelContext, SingletonEntity};
@@ -44,8 +45,17 @@ impl Drop for MutexHandle {
 static SOLE_INSTANCE_MUTEX: LazyLock<Mutex<Result<Option<MutexHandle>, Error>>> =
     LazyLock::new(|| Mutex::new(try_create_mutex()));
 
+fn instance_namespace() -> String {
+    let app_id = ChannelState::app_id();
+    if app_id == AppId::windows_warp_ish() {
+        ChannelState::data_domain()
+    } else {
+        format!("Warp{:?}", ChannelState::channel())
+    }
+}
+
 pub(super) fn uri_named_pipe_name() -> String {
-    format!("Warp{:?}_URI_CHANNEL", ChannelState::channel())
+    format!("{}_URI_CHANNEL", instance_namespace())
 }
 
 fn try_create_mutex() -> Result<Option<MutexHandle>, Error> {
@@ -57,7 +67,7 @@ fn try_create_mutex() -> Result<Option<MutexHandle>, Error> {
     // NOTE: This lock name must stay in sync with `AppMutexName` in
     // `script/windows/windows-installer.iss`, which the installer uses to detect whether Warp is
     // running.
-    let name = format!("Local\\Warp{:?}_SingleInstance", ChannelState::channel())
+    let name = format!("Local\\{}_SingleInstance", instance_namespace())
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect::<Vec<u16>>();

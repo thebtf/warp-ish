@@ -1,15 +1,16 @@
 use std::any::Any;
+#[cfg(unix)]
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
+#[cfg(unix)]
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc::{SendError, SyncSender};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use ai::api_keys::ApiKeyManager;
 use anyhow::Context as _;
 use async_broadcast::InactiveReceiver;
 use instant::Instant;
@@ -20,9 +21,7 @@ use pathfinder_geometry::vector::Vector2F;
 use settings::Setting as _;
 use uuid::Uuid;
 use warp_core::SessionId;
-use warp_errors::report_error;
 use warpui::r#async::Timer;
-use warpui::r#async::executor::Background;
 use warpui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity, ViewHandle};
 
 use super::event_loop::EventLoop;
@@ -30,44 +29,34 @@ use super::shell::{ShellStarter, ShellStarterSource};
 use super::spawner::{PtySpawnHooks, PtySpawnMode};
 #[cfg(unix)]
 use super::terminal_attributes::TerminalAttributesPoller;
-use super::{mio_channel, recorder};
-use crate::ai::aws_credentials::AwsCredentialRefresher as _;
-use crate::ai::blocklist::SerializedBlockListItem;
-use crate::auth::AuthStateProvider;
-use crate::auth::auth_state::AuthState;
+use super::mio_channel;
 use crate::banner::BannerState;
 use crate::context_chips::ContextChipKind;
 use crate::context_chips::prompt::Prompt;
-use crate::features::FeatureFlag;
 use crate::persistence::ModelEvent;
-use crate::send_telemetry_on_executor;
-use crate::server::telemetry::{
-    CloudAgentShellRecoveryFailureClass, PtySpawnMode as TelemetryPtySpawnMode, TelemetryEvent,
-};
-use crate::settings::{DebugSettings, PrivacySettings, SshSettings};
+use crate::settings::{DebugSettings, SshSettings};
 use crate::terminal::available_shells::{AvailableShell, AvailableShells};
 use crate::terminal::color::List as ColorList;
 use crate::terminal::event_listener::ChannelEventListener;
 #[cfg(unix)]
 use crate::terminal::local_tty::terminal_attributes::Event as TerminalAttributesPollerEvent;
 use crate::terminal::local_tty::{Pty, PtyOptions};
+use crate::terminal::model::block::SerializedBlockListItem;
 use crate::terminal::model::session::{Sessions, SessionsEvent};
 #[cfg(unix)]
 use crate::terminal::model::terminal_model::BlockIndex;
 use crate::terminal::model::terminal_model::{ExitReason, ShellProcessInfo};
 #[cfg(unix)]
 use crate::terminal::model_events::ModelEvent as TerminalModelEvent;
-use crate::terminal::model_events::{ModelEventDispatcher, SshRemoteServerSupport};
-use crate::terminal::session_settings::{SessionSettings, ToolbarChipSelection};
-use crate::terminal::shared_session::sharer::network::Network;
-use crate::terminal::shared_session::{IsSharedSessionCreator, SharedSessionStatus};
+use crate::terminal::model_events::ModelEventDispatcher;
+use crate::terminal::session_settings::SessionSettings;
 use crate::terminal::shell::ShellName;
-use crate::terminal::shell_recovery::{CloudShellRecoveryRequest, ShellReplacementRequest};
+use crate::terminal::shell_recovery::ShellReplacementRequest;
 use crate::terminal::terminal_manager::BlockSpacing;
 use crate::terminal::warpify::settings::WarpifySettings;
 use crate::terminal::writeable_pty::pty_controller::{EventLoopSendError, EventLoopSender};
 use crate::terminal::writeable_pty::terminal_manager_util::{
-    init_pty_controller_model, init_remote_server_controller, wire_up_pty_controller_with_surface,
+    init_pty_controller_model, wire_up_pty_controller_with_surface,
 };
 use crate::terminal::writeable_pty::{self, Message, PtyIntentEvent, TerminalSurface};
 use crate::terminal::{
@@ -76,33 +65,16 @@ use crate::terminal::{
 };
 
 type PtyController = writeable_pty::PtyController<mio_channel::Sender<Message>>;
-type RemoteServerController =
-    writeable_pty::remote_server_controller::RemoteServerController<mio_channel::Sender<Message>>;
 
-struct AppPtySpawnHooks {
-    is_crash_reporting_enabled: bool,
-}
+struct AppPtySpawnHooks;
 
 impl PtySpawnHooks for AppPtySpawnHooks {
-    fn before_spawn(&self) {
-        #[cfg(feature = "crash_reporting")]
-        crate::crash_reporting::uninit_cocoa_sentry();
-    }
+    fn before_spawn(&self) {}
 
-    fn after_spawn(&self) {
-        if self.is_crash_reporting_enabled {
-            #[cfg(feature = "crash_reporting")]
-            crate::crash_reporting::init_cocoa_sentry();
-        }
-    }
+    fn after_spawn(&self) {}
 
-    fn spawned(&self, mode: PtySpawnMode, ctx: &mut AppContext) {
-        let mode = match mode {
-            PtySpawnMode::TerminalServer => TelemetryPtySpawnMode::TerminalServer,
-            PtySpawnMode::FallbackToDirect => TelemetryPtySpawnMode::FallbackToDirect,
-            PtySpawnMode::Direct => TelemetryPtySpawnMode::Direct,
-        };
-        crate::send_telemetry_from_app_ctx!(TelemetryEvent::PtySpawned { mode }, ctx);
+    fn spawned(&self, mode: PtySpawnMode, _ctx: &mut AppContext) {
+        log::debug!("PTY spawned using {mode:?}");
     }
 }
 
@@ -132,7 +104,6 @@ pub struct TerminalManager<S> {
     pty_controller: ModelHandle<PtyController>,
 
     /// The manager is responsible for managing the lifetime of the remote server controller.
-    remote_server_controller: ModelHandle<RemoteServerController>,
 
     /// The process ID of the PTY. Purely used for integration tests. None if the PTY has not yet
     /// been started.
@@ -145,12 +116,8 @@ pub struct TerminalManager<S> {
     /// Note that we need to hold onto the inactive receiver so that the channel isn't closed prematurely.
     inactive_pty_reads_rx: InactiveReceiver<Arc<Vec<u8>>>,
 
-    /// The sharer side of the session sharing protocol. [`Some`] only when a
-    /// shared session connection is ongoing.
-    pub(super) session_sharer: Rc<RefCell<Option<ModelHandle<Network>>>>,
-    sessions: ModelHandle<Sessions>,
-    recovery_resources: Option<ShellRecoveryResources>,
-    pending_shell_recovery: Option<PendingShellRecovery>,
+    shell_replacement_resources: Option<ShellReplacementResources>,
+    pending_shell_replacement: Option<PendingShellReplacement>,
 }
 
 /// Shared inputs needed to construct a terminal surface for a local PTY.
@@ -164,7 +131,7 @@ pub struct TerminalSurfaceInit {
     pub inactive_pty_reads_rx: InactiveReceiver<Arc<Vec<u8>>>,
 }
 
-#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+#[cfg(test)]
 impl TerminalSurfaceInit {
     /// Creates mock terminal surface inputs without spawning a PTY.
     pub fn new_for_test(ctx: &mut AppContext) -> Self {
@@ -206,49 +173,19 @@ struct ShellStartupResources {
 }
 
 #[derive(Clone)]
-struct ShellRecoveryResources {
+struct ShellReplacementResources {
     starter: ShellStarter,
-    original_env: HashMap<OsString, OsString>,
     channel_event_proxy: ChannelEventListener,
     #[cfg(unix)]
     model_events: ModelHandle<ModelEventDispatcher>,
 }
 
-impl ShellRecoveryResources {
-    /// Makes `env` the baseline for later recoveries and returns it for the replacement shell.
-    fn adopt_environment(
-        &mut self,
-        env: HashMap<OsString, OsString>,
-    ) -> HashMap<OsString, OsString> {
-        self.original_env = env.clone();
-        env
-    }
-
-    /// Returns the baseline environment overlaid with a session's cached variables.
-    fn recovery_environment(
-        &self,
-        session_env: Option<HashMap<String, String>>,
-    ) -> HashMap<OsString, OsString> {
-        let mut env = self.original_env.clone();
-        env.extend(
-            session_env
-                .into_iter()
-                .flatten()
-                .map(|(key, value)| (key.into(), value.into())),
-        );
-        env
-    }
-}
-
 /// A shell replacement that has not finished bootstrapping.
-struct PendingShellRecovery {
-    restored_working_directory: String,
-    used_fallback_directory: bool,
+struct PendingShellReplacement {
     replacement_session_id: SessionId,
-    planned_request_id: Option<Uuid>,
+    request_id: Uuid,
 }
 
-/// Matches the deadline the cloud agent driver gives the initial shell to bootstrap.
 const REPLACEMENT_SHELL_BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(60);
 const REPLACEMENT_SHELL_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -302,7 +239,6 @@ impl<S> TerminalManager<S> {
     pub(crate) fn create_model<PostWire>(
         startup_directory: Option<PathBuf>,
         env_vars: HashMap<OsString, OsString>,
-        is_shared_session_creator: IsSharedSessionCreator,
         all_restored_blocks: Option<&Vec<SerializedBlockListItem>>,
         user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
         initial_size: Vector2F,
@@ -323,14 +259,12 @@ impl<S> TerminalManager<S> {
         Self::create_model_with_manager(
             startup_directory,
             env_vars,
-            is_shared_session_creator,
             all_restored_blocks,
             user_default_shell_unsupported_banner_model_handle,
             initial_size,
             model_event_sender,
             chosen_shell,
             BlockSpacing::for_gui(ctx),
-            SshRemoteServerSupport::Enabled,
             ctx,
             create_surface,
             |manager| Box::new(manager),
@@ -343,7 +277,6 @@ impl<S> TerminalManager<S> {
     pub fn create_tui_model<PostWire>(
         startup_directory: Option<PathBuf>,
         env_vars: HashMap<OsString, OsString>,
-        is_shared_session_creator: IsSharedSessionCreator,
         all_restored_blocks: Option<&Vec<SerializedBlockListItem>>,
         user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
         initial_size: Vector2F,
@@ -364,14 +297,12 @@ impl<S> TerminalManager<S> {
         Self::create_model_with_manager(
             startup_directory,
             env_vars,
-            is_shared_session_creator,
             all_restored_blocks,
             user_default_shell_unsupported_banner_model_handle,
             initial_size,
             model_event_sender,
             chosen_shell,
             block_spacing,
-            SshRemoteServerSupport::Disabled,
             ctx,
             create_surface,
             |manager| Box::new(TuiTerminalManager(manager)),
@@ -383,14 +314,12 @@ impl<S> TerminalManager<S> {
     fn create_model_with_manager<PostWire, BoxManager>(
         startup_directory: Option<PathBuf>,
         env_vars: HashMap<OsString, OsString>,
-        is_shared_session_creator: IsSharedSessionCreator,
         all_restored_blocks: Option<&Vec<SerializedBlockListItem>>,
         user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
         initial_size: Vector2F,
         model_event_sender: Option<SyncSender<ModelEvent>>,
         chosen_shell: Option<AvailableShell>,
         block_spacing: BlockSpacing,
-        ssh_remote_server_support: SshRemoteServerSupport,
         ctx: &mut AppContext,
         create_surface: impl FnOnce(
             TerminalSurfaceInit,
@@ -421,12 +350,7 @@ impl<S> TerminalManager<S> {
         let sessions = ctx.add_model(|ctx| Sessions::new(executor_command_tx.clone(), ctx));
 
         let model_events = ctx.add_model(|ctx| {
-            ModelEventDispatcher::new_with_ssh_remote_server_support(
-                events_rx,
-                sessions.clone(),
-                ssh_remote_server_support,
-                ctx,
-            )
+            ModelEventDispatcher::new(events_rx, sessions.clone(), ctx)
         });
 
         let preferred_shell = chosen_shell.unwrap_or_else(|| {
@@ -461,58 +385,6 @@ impl<S> TerminalManager<S> {
         let colors = model.colors();
         let model = Arc::new(FairMutex::new(model));
 
-        // Have ApiKeyManager subscribe to block completion events for AWS credential refresh.
-        // This must happen after `model` is created, since the subscription needs it to resolve
-        // lazily-computed `UserBlockCompleted` fields.
-        ApiKeyManager::handle(ctx).update(ctx, |manager, ctx| {
-            manager.register_model_event_dispatcher(&model_events, model.clone(), ctx);
-        });
-
-        // This is purely for measuring throughput on WarpDev.
-        if FeatureFlag::RecordPtyThroughput.is_enabled() {
-            let auth_state = AuthStateProvider::as_ref(ctx).get().clone();
-            let telemetry_executor = Arc::clone(ctx.background_executor());
-            recorder::record_pty_throughput(
-                inactive_pty_reads_rx.clone().activate(),
-                model.clone(),
-                |model| {
-                    !model.is_receiving_in_band_command_output()
-                        && model.is_active_block_bootstrapped()
-                },
-                move |max_bytes_per_second| {
-                    send_telemetry_on_executor!(
-                        auth_state,
-                        TelemetryEvent::PtyThroughput {
-                            max_bytes_per_second,
-                        },
-                        telemetry_executor
-                    );
-                },
-                ctx.background_executor().to_owned(),
-            );
-        }
-
-        // If this session should be a shared-session creator, configure its initial
-        // shared-session state before the surface is constructed, so that bootstrap
-        // events can observe the correct pending status and source type.
-        match is_shared_session_creator {
-            IsSharedSessionCreator::Yes { source }
-                if FeatureFlag::CreatingSharedSessions.is_enabled() =>
-            {
-                model.lock().set_shared_session_status(
-                    SharedSessionStatus::SharePendingPreBootstrap { source },
-                );
-                log::info!("Configured terminal to start sharing after bootstrap");
-            }
-            IsSharedSessionCreator::Yes { .. } => {
-                log::warn!(
-                    "Session sharing was requested, but CreatingSharedSessions is disabled; \
-                     skipping shared-session startup"
-                );
-            }
-            IsSharedSessionCreator::No => {}
-        }
-
         // Initialize the PtyController.
         let pty_controller = init_pty_controller_model(
             event_loop_tx.clone(),
@@ -523,9 +395,6 @@ impl<S> TerminalManager<S> {
             ctx,
         );
 
-        // Initialize the RemoteServerController.
-        let remote_server_controller =
-            init_remote_server_controller(&pty_controller, &model_events, ctx);
         let size_info = model.lock().block_list().size().to_owned();
         let TerminalSurfaceResult { surface, post_wire } = create_surface(
             TerminalSurfaceInit {
@@ -555,14 +424,11 @@ impl<S> TerminalManager<S> {
             #[cfg(unix)]
             terminal_attributes_poller: None,
             pty_controller,
-            remote_server_controller,
             #[cfg(feature = "integration_tests")]
             pid: None,
             inactive_pty_reads_rx,
-            session_sharer: Rc::new(RefCell::new(None)),
-            sessions: sessions.clone(),
-            recovery_resources: None,
-            pending_shell_recovery: None,
+            shell_replacement_resources: None,
+            pending_shell_replacement: None,
         };
 
         // Run surface-specific wiring after the manager exists, because this
@@ -630,11 +496,6 @@ impl<S> TerminalManager<S> {
         self.model.clone()
     }
 
-    /// Returns the remote server controller owned by this manager.
-    pub(super) fn remote_server_controller(&self) -> ModelHandle<RemoteServerController> {
-        self.remote_server_controller.clone()
-    }
-
     /// Sends a shutdown message to the PTY event loop and waits for it to
     /// process that event.
     pub(super) fn shutdown_event_loop(&mut self) {
@@ -647,10 +508,7 @@ impl<S> TerminalManager<S> {
         match self.event_loop_handle.take() {
             Some(join_handle) => {
                 if let Err(e) = join_handle.join() {
-                    report_error!(
-                        "Failed to join event loop handle",
-                        extra: { "error" => ?e }
-                    );
+                    log::error!("Failed to join event loop handle: {e:?}");
                 }
             }
             _ => {
@@ -661,23 +519,19 @@ impl<S> TerminalManager<S> {
         self.inactive_pty_reads_rx.close();
     }
 
-    fn fail_pending_shell_recovery(
+    fn fail_pending_shell_replacement(
         &mut self,
-        failure_class: CloudAgentShellRecoveryFailureClass,
         error: anyhow::Error,
         ctx: &mut ModelContext<Box<dyn TerminalManagerTrait>>,
     ) where
         S: TerminalSurface,
         <S as Entity>::Event: PtyIntentEvent,
     {
-        let pending = self.pending_shell_recovery.take();
-        self.view.update(ctx, |surface, ctx| {
-            if let Some(request_id) = pending.and_then(|pending| pending.planned_request_id) {
-                surface.on_shell_replaced(request_id, Err(error), ctx);
-            } else {
-                surface.on_cloud_shell_recovery_failed(failure_class, error, ctx);
-            }
-        });
+        if let Some(pending) = self.pending_shell_replacement.take() {
+            self.view.update(ctx, |surface, ctx| {
+                surface.on_shell_replaced(pending.request_id, Err(error), ctx);
+            });
+        }
     }
 
     pub(super) fn replace_shell(
@@ -695,11 +549,11 @@ impl<S> TerminalManager<S> {
             "shell replacement is not supported on Windows"
         );
         anyhow::ensure!(
-            self.pending_shell_recovery.is_none(),
+            self.pending_shell_replacement.is_none(),
             "shell replacement is already pending"
         );
-        let mut resources = self
-            .recovery_resources
+        let resources = self
+            .shell_replacement_resources
             .clone()
             .context("shell has not started")?;
         let starter = resources
@@ -718,113 +572,37 @@ impl<S> TerminalManager<S> {
         self.event_loop_tx
             .send(Message::ShutdownForReplacement)
             .map_err(|_| anyhow::anyhow!("PTY event loop is disconnected"))?;
-        let pending = PendingShellRecovery {
-            restored_working_directory: request.working_directory.to_string_lossy().into_owned(),
-            used_fallback_directory: false,
+        let pending = PendingShellReplacement {
             replacement_session_id: starter.session_id(),
-            planned_request_id: Some(request.id),
+            request_id: request.id,
         };
-        let env_vars = resources.adopt_environment(request.env_vars);
-        self.recovery_resources = Some(resources.clone());
         self.begin_shell_replacement(
             resources,
             starter,
             request.working_directory,
-            env_vars,
+            request.env_vars,
             pending,
             ctx,
         );
         Ok(())
     }
 
-    /// Spawns a replacement shell on the exited PTY's channel. Returns `false` if this shell
-    /// cannot be respawned at all; otherwise the outcome is reported through the surface's
-    /// recovery callbacks.
-    pub(super) fn recover_cloud_shell(
-        &mut self,
-        request: CloudShellRecoveryRequest,
-        ctx: &mut ModelContext<Box<dyn TerminalManagerTrait>>,
-    ) -> bool
-    where
-        S: TerminalSurface,
-        <S as Entity>::Event: PtyIntentEvent,
-    {
-        let Some(resources) = self.recovery_resources.clone() else {
-            return false;
-        };
-        let Some(replacement_starter) = resources.starter.replacement() else {
-            return false;
-        };
-
-        let session = request
-            .session_id
-            .and_then(|session_id| self.sessions.as_ref(ctx).get(session_id));
-        let (restored_working_directory, used_fallback_directory) =
-            match resources.starter.recovery_working_directory(
-                request.requested_working_directory.as_deref(),
-                session.as_ref().and_then(|session| session.home_dir()),
-            ) {
-                Ok(directory) => directory,
-                Err(error) => {
-                    self.fail_pending_shell_recovery(
-                        CloudAgentShellRecoveryFailureClass::PtySpawn,
-                        error,
-                        ctx,
-                    );
-                    return true;
-                }
-            };
-        let session_env = request.session_id.and_then(|session_id| {
-            self.sessions
-                .as_ref(ctx)
-                .get_env_vars_for_session(session_id)
-        });
-        let restored_env = resources.recovery_environment(session_env);
-        let Some(startup_directory) = replacement_starter
-            .launch_data()
-            .maybe_convert_absolute_path(&restored_working_directory)
-        else {
-            self.fail_pending_shell_recovery(
-                CloudAgentShellRecoveryFailureClass::PtySpawn,
-                anyhow::anyhow!("failed to convert shell recovery directory"),
-                ctx,
-            );
-            return true;
-        };
-        let pending = PendingShellRecovery {
-            restored_working_directory,
-            used_fallback_directory,
-            replacement_session_id: replacement_starter.session_id(),
-            planned_request_id: None,
-        };
-        self.begin_shell_replacement(
-            resources,
-            replacement_starter,
-            startup_directory,
-            restored_env,
-            pending,
-            ctx,
-        );
-        true
-    }
-
     fn begin_shell_replacement(
         &mut self,
-        resources: ShellRecoveryResources,
+        resources: ShellReplacementResources,
         starter: ShellStarter,
         working_directory: PathBuf,
         env_vars: HashMap<OsString, OsString>,
-        pending: PendingShellRecovery,
+        pending: PendingShellReplacement,
         ctx: &mut ModelContext<Box<dyn TerminalManagerTrait>>,
     ) where
         S: TerminalSurface,
         <S as Entity>::Event: PtyIntentEvent,
     {
         let replacement_session_id = starter.session_id();
-        self.pending_shell_recovery = Some(pending);
+        self.pending_shell_replacement = Some(pending);
         let Some(handle) = self.event_loop_handle.take() else {
-            self.fail_pending_shell_recovery(
-                CloudAgentShellRecoveryFailureClass::EventLoopJoin,
+            self.fail_pending_shell_replacement(
                 anyhow::anyhow!("no PTY event loop to replace"),
                 ctx,
             );
@@ -841,7 +619,7 @@ impl<S> TerminalManager<S> {
                     return;
                 };
                 if manager
-                    .pending_shell_recovery
+                    .pending_shell_replacement
                     .as_ref()
                     .is_none_or(|pending| pending.replacement_session_id != replacement_session_id)
                 {
@@ -850,11 +628,7 @@ impl<S> TerminalManager<S> {
                 let event_loop_rx = match result {
                     Ok(receiver) => receiver,
                     Err(error) => {
-                        manager.fail_pending_shell_recovery(
-                            CloudAgentShellRecoveryFailureClass::EventLoopJoin,
-                            error,
-                            ctx,
-                        );
+                        manager.fail_pending_shell_replacement(error, ctx);
                         return;
                     }
                 };
@@ -874,7 +648,7 @@ impl<S> TerminalManager<S> {
 
     fn spawn_replacement_shell(
         &mut self,
-        resources: ShellRecoveryResources,
+        resources: ShellReplacementResources,
         replacement_starter: ShellStarter,
         working_directory: PathBuf,
         env_vars: HashMap<OsString, OsString>,
@@ -909,11 +683,7 @@ impl<S> TerminalManager<S> {
             }) {
             Ok(pty) => pty,
             Err(error) => {
-                self.fail_pending_shell_recovery(
-                    CloudAgentShellRecoveryFailureClass::PtySpawn,
-                    error,
-                    ctx,
-                );
+                self.fail_pending_shell_replacement(error, ctx);
                 return;
             }
         };
@@ -963,7 +733,7 @@ impl<S> TerminalManager<S> {
                     return;
                 };
                 if manager
-                    .pending_shell_recovery
+                    .pending_shell_replacement
                     .as_ref()
                     .is_none_or(|pending| pending.replacement_session_id != replacement_session_id)
                 {
@@ -971,8 +741,7 @@ impl<S> TerminalManager<S> {
                 }
                 let _ = manager.event_loop_tx.send(Message::ShutdownForReplacement);
                 manager.event_loop_handle.take();
-                manager.fail_pending_shell_recovery(
-                    CloudAgentShellRecoveryFailureClass::BootstrapTimeout,
+                manager.fail_pending_shell_replacement(
                     anyhow::anyhow!("replacement shell did not bootstrap before timeout"),
                     ctx,
                 );
@@ -989,21 +758,13 @@ impl<S> TerminalManager<S> {
         <S as Entity>::Event: PtyIntentEvent,
     {
         let Some(pending) = self
-            .pending_shell_recovery
+            .pending_shell_replacement
             .take_if(|pending| pending.replacement_session_id == session_id)
         else {
             return;
         };
         self.view.update(ctx, |surface, ctx| {
-            if let Some(request_id) = pending.planned_request_id {
-                surface.on_shell_replaced(request_id, Ok(()), ctx);
-            } else {
-                surface.on_cloud_shell_recovered(
-                    pending.restored_working_directory,
-                    pending.used_fallback_directory,
-                    ctx,
-                );
-            }
+            surface.on_shell_replaced(pending.request_id, Ok(()), ctx);
         });
     }
 }
@@ -1028,19 +789,16 @@ fn on_shell_determined<S: TerminalSurface>(
     }
 
     log::debug!("Using shell starter source {shell_starter_source:?}");
-    let bg_executor = ctx.background_executor();
-    let auth_state = AuthStateProvider::as_ref(ctx).get();
 
     let is_fallback_shell = matches!(
         shell_starter_source,
         Some(ShellStarterSource::Fallback { .. })
     );
-    let shell_starter = shell_starter_source
-        .map(|source| get_shell_starter_internal(source, bg_executor, auth_state));
+    let shell_starter = shell_starter_source.map(get_shell_starter_internal);
     let shell_starter = match shell_starter {
         Some(shell_starter) => shell_starter,
         None => {
-            report_error!("Could not compute fallback shell");
+            log::error!("Could not compute fallback shell");
             manager.view.update(ctx, |surface, ctx| {
                 surface.on_pty_spawn_failed(
                     anyhow::Error::msg("Could not find a fallback shell. If you have PowerShell or WSL installed, please file an issue."),
@@ -1102,9 +860,8 @@ fn on_shell_determined<S: TerminalSurface>(
         #[cfg(unix)]
         model_events,
     } = shell_startup_resources;
-    manager.recovery_resources = Some(ShellRecoveryResources {
+    manager.shell_replacement_resources = Some(ShellReplacementResources {
         starter: shell_starter.clone(),
-        original_env: env_vars.clone(),
         channel_event_proxy: channel_event_proxy.clone(),
         #[cfg(unix)]
         model_events: model_events.clone(),
@@ -1128,7 +885,7 @@ fn on_shell_determined<S: TerminalSurface>(
         }) {
         Ok(pty) => pty,
         Err(err) => {
-            report_error!(&err);
+            log::error!("Failed to spawn the local PTY: {err:#}");
             manager.view.update(ctx, |surface, ctx| {
                 surface.on_pty_spawn_failed(err, ctx);
             });
@@ -1237,29 +994,10 @@ impl<S> TerminalManager<S> {
             .is_shell_debug_mode_enabled
             .value();
         let is_honor_ps1_enabled = *SessionSettings::as_ref(ctx).honor_ps1;
-        let is_crash_reporting_enabled = PrivacySettings::as_ref(ctx).is_crash_reporting_enabled;
 
-        // Determine whether the Node.js Version chip is enabled anywhere it could be
-        // shown (the Warp prompt, the agent footer, or the CLI agent footer). When it
-        // is not, the shell bootstrap skips the expensive per-prompt `node --version`
-        // detection. The chip value is fed by the same precmd payload regardless of
-        // where it is displayed, so we must check all three locations.
-        let node_version_chip_enabled = {
-            let in_prompt = !is_honor_ps1_enabled
-                && Prompt::as_ref(ctx)
-                    .chip_kinds()
-                    .contains(&ContextChipKind::NodeVersion);
-            let settings = SessionSettings::as_ref(ctx);
-            in_prompt
-                || settings
-                    .agent_footer_chip_selection
-                    .all_chips()
-                    .contains(&ContextChipKind::NodeVersion)
-                || settings
-                    .cli_agent_footer_chip_selection
-                    .all_chips()
-                    .contains(&ContextChipKind::NodeVersion)
-        };
+        // Skip Node version detection unless the local prompt uses it.
+        let node_version_chip_enabled = !is_honor_ps1_enabled
+            && Prompt::as_ref(ctx).chip_kinds().contains(&ContextChipKind::NodeVersion);
 
         // `enable_ssh_warpification` is the single source of truth for whether the SSH
         // wrapper is active. The bootstrap scripts check `WARP_USE_SSH_WRAPPER` (derived
@@ -1290,9 +1028,7 @@ impl<S> TerminalManager<S> {
             close_fds: true,
         };
 
-        let hooks = AppPtySpawnHooks {
-            is_crash_reporting_enabled,
-        };
+        let hooks = AppPtySpawnHooks;
         Pty::new(
             options,
             &hooks,
@@ -1430,7 +1166,6 @@ fn wire_up_terminal_attribute_poller_with_surface<S: TerminalSurface>(
 
 pub fn get_shell_starter(
     chosen_shell: Option<AvailableShell>,
-    auth_state: &AuthState,
     ctx: &mut AppContext,
 ) -> Option<ShellStarter> {
     let preferred_shell = chosen_shell.unwrap_or_else(|| {
@@ -1443,41 +1178,15 @@ pub fn get_shell_starter(
         .and_then(|starter| {
             warpui::r#async::block_on(async { starter.to_shell_starter_source().await })
         })
-        .map(|starter_source| {
-            get_shell_starter_internal(
-                starter_source,
-                ctx.background_executor().clone(),
-                auth_state,
-            )
-        })
+        .map(get_shell_starter_internal)
 }
 
-fn get_shell_starter_internal(
-    shell_starter_source: ShellStarterSource,
-    background_executor: Arc<Background>,
-    auth_state: &AuthState,
-) -> ShellStarter {
+fn get_shell_starter_internal(shell_starter_source: ShellStarterSource) -> ShellStarter {
     match shell_starter_source {
         ShellStarterSource::Override(shell_starter) => shell_starter,
-        ShellStarterSource::Environment(starter) | ShellStarterSource::UserDefault(starter) => {
-            ShellStarter::Direct(starter)
-        }
-        ShellStarterSource::Fallback {
-            unsupported_shell,
-            starter,
-        } => {
-            if let Some(unsupported_shell) = unsupported_shell {
-                send_telemetry_on_executor!(
-                    auth_state,
-                    TelemetryEvent::UnsupportedShell {
-                        shell: unsupported_shell
-                    },
-                    background_executor
-                );
-            }
-
-            ShellStarter::Direct(starter)
-        }
+        ShellStarterSource::Environment(starter)
+        | ShellStarterSource::UserDefault(starter)
+        | ShellStarterSource::Fallback { starter, .. } => ShellStarter::Direct(starter),
     }
 }
 

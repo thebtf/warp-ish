@@ -8,8 +8,7 @@ use url::{Origin, ParseError, Url};
 use super::Channel;
 use crate::AppId;
 use crate::channel::config::{
-    ChannelConfig, IapConfig, McpOAuthProviderConfig, OzConfig, RudderStackDestination,
-    WarpServerConfig,
+    ChannelConfig, IapConfig, McpOAuthProviderConfig, OzConfig, WarpServerConfig,
 };
 use crate::features::FeatureFlag;
 
@@ -28,6 +27,9 @@ lazy_static! {
 pub struct ChannelState {
     channel: Channel,
 
+    #[cfg(windows)]
+    windows_warp_ish_data_profile: Option<String>,
+
     /// The set of additional features to enable (on top of default-enabled ones).
     additional_features: HashSet<FeatureFlag>,
 
@@ -40,15 +42,15 @@ impl ChannelState {
         let app_id = AppId::new("dev", "warp", "WarpOss");
         Self {
             channel,
+            #[cfg(windows)]
+            windows_warp_ish_data_profile: None,
             additional_features: Default::default(),
             config: ChannelConfig {
                 app_id,
                 logfile_name: "".into(),
                 server_config: WarpServerConfig::production(),
                 oz_config: OzConfig::production(),
-                telemetry_config: None,
                 autoupdate_config: None,
-                crash_reporting_config: None,
                 mcp_static_config: None,
             },
         }
@@ -67,9 +69,33 @@ impl ChannelState {
         }
         Self {
             channel,
+            #[cfg(windows)]
+            windows_warp_ish_data_profile: None,
             additional_features: Default::default(),
             config,
         }
+    }
+
+    #[cfg(windows)]
+    pub fn with_windows_warp_ish_data_profile_from_env(mut self) -> anyhow::Result<Self> {
+        if self.config.app_id != AppId::windows_warp_ish() {
+            return Ok(self);
+        }
+
+        match std::env::var("WARP_DATA_PROFILE") {
+            Ok(profile) => {
+                anyhow::ensure!(
+                    valid_windows_warp_ish_data_profile(&profile),
+                    "WARP_DATA_PROFILE must begin with a lowercase ASCII letter or digit and contain at most 48 lowercase ASCII letters, digits, or hyphens"
+                );
+                self.windows_warp_ish_data_profile = Some(profile);
+            }
+            Err(std::env::VarError::NotPresent) => {}
+            Err(std::env::VarError::NotUnicode(_)) => {
+                anyhow::bail!("WARP_DATA_PROFILE must contain only ASCII characters");
+            }
+        }
+        Ok(self)
     }
 
     pub fn with_additional_features(mut self, overrides: &[FeatureFlag]) -> Self {
@@ -133,13 +159,35 @@ impl ChannelState {
         CHANNEL_STATE.lock().config.app_id.clone()
     }
 
-    /// Returns a profile name for isolating user data. This should be used to
-    /// sandbox how user data is stored.
-    ///
-    /// This is a debugging tool for isolating development instances of Warp, and is not
-    /// supported in release builds.
+    pub fn is_windows_warp_ish() -> bool {
+        #[cfg(windows)]
+        {
+            Self::app_id() == AppId::windows_warp_ish()
+        }
+        #[cfg(not(windows))]
+        {
+            false
+        }
+    }
+
+    /// Returns the explicit data profile for a Windows warp-ish instance.
+    pub fn windows_warp_ish_data_profile() -> Option<String> {
+        #[cfg(windows)]
+        {
+            CHANNEL_STATE.lock().windows_warp_ish_data_profile.clone()
+        }
+        #[cfg(not(windows))]
+        {
+            None
+        }
+    }
+
+    /// Returns a profile that namespaces local state. Windows warp-ish also supports profiles
+    /// in release builds. Other channels support them only in debug builds.
     pub fn data_profile() -> Option<String> {
-        if cfg!(debug_assertions) {
+        if Self::is_windows_warp_ish() {
+            Self::windows_warp_ish_data_profile()
+        } else if cfg!(debug_assertions) {
             std::env::var("WARP_DATA_PROFILE").ok()
         } else {
             None
@@ -148,9 +196,7 @@ impl ChannelState {
 
     /// Returns a value that should be used for namespacing persisted data.
     ///
-    /// In release builds, this is identical to the app ID; in debug builds,
-    /// it optionally includes a suffix derived from the `WARP_DATA_PROFILE`
-    /// environment variable.
+    /// An explicit profile appends a suffix to the canonical app ID.
     pub fn data_domain() -> String {
         match Self::data_profile() {
             Some(profile) => format!("{}-{profile}", Self::app_id()),
@@ -180,32 +226,6 @@ impl ChannelState {
         CHANNEL_STATE.lock().config.logfile_name.clone()
     }
 
-    pub fn telemetry_file_name() -> Cow<'static, str> {
-        CHANNEL_STATE
-            .lock()
-            .config
-            .telemetry_config
-            .as_ref()
-            .map(|tc| tc.telemetry_file_name.clone())
-            .unwrap_or_default()
-    }
-
-    /// Returns whether this build has a telemetry config and can therefore ship
-    /// telemetry events. Builds like OpenWarp intentionally ship with
-    /// `telemetry_config: None`, in which case UI that controls telemetry
-    /// should be hidden since the toggle has no effect.
-    pub fn is_telemetry_available() -> bool {
-        CHANNEL_STATE.lock().config.telemetry_config.is_some()
-    }
-
-    /// Returns whether this build has a crash reporting config and can therefore
-    /// ship crash reports. Builds like OpenWarp intentionally ship with
-    /// `crash_reporting_config: None`, in which case UI that controls crash
-    /// reporting should be hidden since the toggle has no effect.
-    pub fn is_crash_reporting_available() -> bool {
-        CHANNEL_STATE.lock().config.crash_reporting_config.is_some()
-    }
-
     pub fn releases_base_url() -> Cow<'static, str> {
         CHANNEL_STATE
             .lock()
@@ -214,15 +234,6 @@ impl ChannelState {
             .as_ref()
             .map(|ac| ac.releases_base_url.clone())
             .unwrap_or_default()
-    }
-
-    pub fn firebase_api_key() -> Cow<'static, str> {
-        CHANNEL_STATE
-            .lock()
-            .config
-            .server_config
-            .firebase_auth_api_key
-            .clone()
     }
 
     pub fn iap_config() -> Option<IapConfig> {
@@ -325,32 +336,6 @@ impl ChannelState {
             .origin()
     }
 
-    /// Returns the rudderstack destination for all events that don't contain user-generated content.
-    pub fn rudderstack_non_ugc_destination() -> RudderStackDestination {
-        let state = CHANNEL_STATE.lock();
-
-        state
-            .config
-            .telemetry_config
-            .as_ref()
-            .and_then(|tc| tc.rudderstack_config.as_ref())
-            .map(|rs| rs.non_ugc_destination())
-            .unwrap_or_default()
-    }
-
-    /// Returns the rudderstack destination for all events that contain user-generated content.
-    pub fn rudderstack_ugc_destination() -> RudderStackDestination {
-        let state = CHANNEL_STATE.lock();
-
-        state
-            .config
-            .telemetry_config
-            .as_ref()
-            .and_then(|tc| tc.rudderstack_config.as_ref())
-            .map(|rs| rs.ugc_destination())
-            .unwrap_or_default()
-    }
-
     pub fn channel() -> Channel {
         CHANNEL_STATE.lock().channel
     }
@@ -370,16 +355,6 @@ impl ChannelState {
     #[cfg(not(feature = "test-util"))]
     pub fn app_version() -> Option<&'static str> {
         option_env!("GIT_RELEASE_TAG")
-    }
-
-    pub fn sentry_url() -> Cow<'static, str> {
-        CHANNEL_STATE
-            .lock()
-            .config
-            .crash_reporting_config
-            .as_ref()
-            .map(|crc| crc.sentry_url.clone())
-            .unwrap_or_default()
     }
 
     pub fn show_autoupdate_menu_items() -> bool {
@@ -415,7 +390,13 @@ impl ChannelState {
     }
 
     pub fn url_scheme() -> &'static str {
-        match Self::channel() {
+        let state = CHANNEL_STATE.lock();
+        #[cfg(windows)]
+        if state.config.app_id == AppId::windows_warp_ish() {
+            return AppId::WARP_ISH_SLUG;
+        }
+
+        match state.channel {
             Channel::Stable => "warp",
             Channel::Preview => "warppreview",
             Channel::Dev => "warpdev",
@@ -425,6 +406,25 @@ impl ChannelState {
             Channel::Oss => "warposs",
         }
     }
+}
+
+#[cfg(windows)]
+fn valid_windows_warp_ish_data_profile(profile: &str) -> bool {
+    let ascii_alnum = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
+    profile.len() <= 48
+        && profile.bytes().next().is_some_and(ascii_alnum)
+        && profile.bytes().all(|byte| ascii_alnum(byte) || byte == b'-')
+}
+
+#[cfg(all(test, windows))]
+#[test]
+fn windows_warp_ish_data_profile_is_safe_for_paths_and_ipc() {
+    assert!(valid_windows_warp_ish_data_profile("acceptance-42"));
+    assert!(valid_windows_warp_ish_data_profile(&"a".repeat(48)));
+    for invalid in ["", "-fixture", "UPPER", "../data", "a\\b", "a:b", "a.b", "а"] {
+        assert!(!valid_windows_warp_ish_data_profile(invalid), "{invalid:?}");
+    }
+    assert!(!valid_windows_warp_ish_data_profile(&"a".repeat(49)));
 }
 
 /// Derives an HTTP(S) origin URL from a WebSocket URL by rewriting the scheme

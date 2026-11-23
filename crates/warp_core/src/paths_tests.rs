@@ -64,6 +64,16 @@ fn test_gui_app_id_maps_oss_tui_to_oss_gui() {
     assert_eq!(gui_app_id.to_string(), "dev.warp.WarpOss");
 }
 
+#[cfg(windows)]
+#[test]
+fn test_warp_ish_gui_config_uses_its_own_namespace() {
+    let gui_app_id = gui_app_id_for_channel(Channel::Oss, AppId::windows_warp_ish());
+    let project_dirs =
+        project_dirs_for_app_id(gui_app_id, None).expect("should be able to compute project dirs");
+
+    assert_eq!(project_dirs.project_path(), r"warpish\WarpIsh");
+}
+
 #[test]
 fn test_gui_config_and_mcp_paths_resolve_explicit_sources() {
     let home_dir = home_dir().expect("Should be able to compute home directory");

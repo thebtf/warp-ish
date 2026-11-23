@@ -33,6 +33,11 @@ pub const WARP_CONFIG_DIR: &str = ".warp";
 pub const WARP_LOGS_DIR: &str = "logs";
 
 fn base_warp_config_dir_name() -> String {
+    #[cfg(windows)]
+    if ChannelState::app_id() == AppId::windows_warp_ish() {
+        return format!(".{}", AppId::WARP_ISH_SLUG);
+    }
+
     match ChannelState::channel() {
         // Preview shares the same directory as Stable for backward
         // compatibility — existing users already have config in `.warp`.
@@ -135,6 +140,11 @@ pub fn data_dir() -> PathBuf {
 /// `WarpOss`.
 #[cfg(any(not(target_os = "macos"), test))]
 fn gui_app_id_for_channel(channel: Channel, current_app_id: AppId) -> AppId {
+    #[cfg(windows)]
+    if current_app_id == AppId::windows_warp_ish() {
+        return current_app_id;
+    }
+
     match channel {
         Channel::Oss => AppId::new("dev", "warp", "WarpOss"),
         Channel::Stable

@@ -1,10 +1,8 @@
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
-use std::time::Duration;
 
 use instant::Instant;
-pub use remote_server::setup::RemoteServerSetupState;
 pub use warp_terminal::event::{
     ExecutedExecutorCommandEvent, ObservedExitStatus, ParseGeneratorOutputError,
 };
@@ -13,11 +11,11 @@ use warp_util::lazy::Lazy;
 use super::history::HistoryEntry;
 use super::model::ansi::{ExternalShellWidgetSelectionValue, FinishUpdateValue};
 use super::model::block::BlockId;
+#[cfg(test)]
 use super::model::lifecycle::LifecycleRecoveryRecord;
 use super::model::session::{SessionId, SessionInfo};
 use super::model::terminal_model::{BlockIndex, ExitReason};
-use crate::server::ids::SyncId;
-use crate::server::telemetry::ImageProtocol;
+use warp_terminal::ImageProtocol;
 use crate::terminal::ClipboardType;
 use crate::terminal::model::block::{BlockMetadata, SerializedBlock};
 use crate::terminal::model::blocks::BlockList;
@@ -77,13 +75,6 @@ pub enum Event {
     /// An indication that a successful SSH connection was initiated via the
     /// SSH wrapper.  The argument is the name of the remote shell.
     SSH(String),
-    /// Emitted when the remote shell for a session is about to exit, so
-    /// per-session resources (e.g. the `ssh … remote-server-proxy` child that
-    /// holds a multiplexed channel on the ControlMaster) can be torn down
-    /// before the outer ssh tunnel starts closing.
-    ExitShell {
-        session_id: SessionId,
-    },
     /// Sent when the model detects an SSH ControlMaster error, which means that
     /// completions reliant on command execution will not work.
     SSHControlMasterError,
@@ -115,23 +106,9 @@ pub enum Event {
         is_tagged_in: bool,
     },
     Handler(HandlerEvent),
-    /// Carries non-UGC lifecycle diagnostics to the model dispatcher for telemetry.
+    /// Exposes the lifecycle diagnostic to terminal regression tests.
+    #[cfg(test)]
     LifecycleRecovery(LifecycleRecoveryRecord),
-    /// Emitted when the remote server binary has been successfully checked or
-    /// installed and is ready. The session is initialized independently on
-    /// `Bootstrapped`; when the remote server later connects, the client is
-    /// attached to the existing session's `RemoteServerCommandExecutor` via
-    /// the `RemoteServerManagerEvent::SessionConnected` subscription in
-    /// `Sessions::new`.
-    RemoteServerReady {
-        session_id: SessionId,
-    },
-    /// Emitted when the remote server setup failed. The session falls back to
-    /// the ControlMaster-based `RemoteCommandExecutor`.
-    RemoteServerFailed {
-        session_id: SessionId,
-        error: String,
-    },
     /// Emitted when the assisted auto-update has completed and we're ready to
     /// relaunch the app.
     FinishUpdate(FinishUpdateValue),
@@ -239,19 +216,7 @@ pub struct BlockCompletedEvent {
 
 #[derive(Clone)]
 pub struct AfterBlockCompletedEvent {
-    /// The delay from the CommandFinished ansi hook to the Precmd hook.
-    /// This value is only provided for the blocks that the user directly
-    /// executes (so it's not provided if this is a restored block from session
-    /// restoration or a bootstrapping block).
-    pub command_finished_to_precmd_delay: Option<Duration>,
     pub block_type: BlockType,
-    pub num_secrets_obfuscated: usize,
-
-    /// If the completed block was a workflow, this is its id.
-    pub cloud_workflow_id: Option<SyncId>,
-
-    /// If the completed block had an env var object associated.
-    pub cloud_env_var_collection_id: Option<SyncId>,
 }
 
 #[derive(Clone, Debug)]
@@ -473,16 +438,8 @@ impl Debug for Event {
                 )
             }
             Event::Handler(handler_event) => write!(f, "Handler({handler_event:?}))"),
+            #[cfg(test)]
             Event::LifecycleRecovery(record) => write!(f, "LifecycleRecovery({record:?})"),
-            Event::RemoteServerReady { session_id } => {
-                write!(f, "RemoteServerReady(session: {session_id:?})")
-            }
-            Event::RemoteServerFailed { session_id, error } => {
-                write!(
-                    f,
-                    "RemoteServerFailed(session: {session_id:?}, error: {error})"
-                )
-            }
             Event::FinishUpdate(data) => write!(f, "FinishUpdate({})", data.update_id),
             Event::ExternalShellWidgetSelection(data) => {
                 write!(
@@ -498,9 +455,6 @@ impl Debug for Event {
             }
             Event::BootstrapPrecmdDone => write!(f, "BootstrapPrecmdDone"),
             Event::PluggableNotification { .. } => write!(f, "PluggableNotification"),
-            Event::ExitShell { session_id } => {
-                write!(f, "ExitShell(session: {session_id:?})")
-            }
         }
     }
 }

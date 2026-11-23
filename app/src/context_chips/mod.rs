@@ -200,11 +200,17 @@ pub enum ContextChipKind {
     #[serde(alias = "RemoteLogin")]
     Ssh,
     Subshell,
-    /// A chip that shows the plan and todo list for the current conversation.
+    /// Legacy data compatibility for layouts saved before built-in AI removal.
+    #[schemars(skip)]
     AgentPlanAndTodoList,
 }
 
 impl ContextChipKind {
+    /// Retired data tags are readable but are not offered, generated or displayed.
+    pub fn is_retired(&self) -> bool {
+        matches!(self, Self::AgentPlanAndTodoList)
+    }
+
     pub fn to_chip(&self) -> Option<ContextChip> {
         match self {
             Self::WorkingDirectory => Some(ContextChip::builtin_with_runtime_policy(
@@ -361,11 +367,7 @@ impl ContextChipKind {
                 builtins::subshell,
                 RefreshConfig::OnDemandOnly,
             )),
-            Self::AgentPlanAndTodoList => Some(ContextChip::builtin(
-                "Agent Plan and Todo List",
-                |_| Some(ChipValue::Text(String::new())),
-                RefreshConfig::OnDemandOnly,
-            )),
+            Self::AgentPlanAndTodoList => None,
         }
     }
 
@@ -421,7 +423,7 @@ impl ContextChipKind {
             Self::SvnDirtyItems => ChipValue::Text("3".to_string()),
             Self::Ssh => ChipValue::Text("alice@127.0.0.1".to_string()),
             Self::Subshell => ChipValue::Text("bash".to_string()),
-            Self::AgentPlanAndTodoList => ChipValue::Text("Plan and Todo List".to_string()),
+            Self::AgentPlanAndTodoList => ChipValue::default(),
         }
     }
 
@@ -454,7 +456,7 @@ impl ContextChipKind {
             Self::SvnDirtyItems => prompt_colors.input_prompt_svn,
             Self::Ssh => prompt_colors.input_prompt_ssh,
             Self::Subshell => prompt_colors.input_prompt_subshell,
-            Self::AgentPlanAndTodoList => prompt_colors.input_prompt_agent_mode_hint,
+            Self::AgentPlanAndTodoList => ColorU::new(0, 0, 0, 0),
             Self::Custom { .. } => ColorU::new(255, 255, 255, 255),
         };
 
@@ -470,7 +472,7 @@ impl ContextChipKind {
     /// user-created chips.
     pub fn telemetry_name(&self) -> Option<String> {
         match self {
-            Self::Custom { .. } => None,
+            Self::Custom { .. } | Self::AgentPlanAndTodoList => None,
             chip => Some(format!("{chip:?}")),
         }
     }
@@ -495,6 +497,7 @@ impl ContextChipKind {
     /// in the input.
     pub fn should_render(&self, command: &str, aliases: &HashMap<SmolStr, String>) -> bool {
         match self {
+            Self::AgentPlanAndTodoList => false,
             Self::KubernetesContext => {
                 const KUBERNETES_COMMANDS: [&str; 20] = [
                     "kubectl",
@@ -547,17 +550,10 @@ impl ContextChipKind {
             Self::GitDiffStats | Self::SvnDirtyItems => Some(Icon::File),
             Self::GithubPullRequest => Some(Icon::Github),
             Self::KubernetesContext => Some(Icon::Globe),
-            Self::AgentPlanAndTodoList => Some(Icon::CheckSkinny),
+            Self::AgentPlanAndTodoList => None,
             Self::Custom { .. } => None,
         }
     }
-}
-
-/// Returns the set of chips that are available for use in the agent footer.
-pub fn agent_footer_available_chips() -> Vec<ContextChipKind> {
-    let mut chips = available_chips();
-    chips.push(ContextChipKind::AgentPlanAndTodoList);
-    chips
 }
 
 /// TODO: this needs to also fetch the custom chips from sqlite

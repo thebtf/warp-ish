@@ -1,28 +1,23 @@
 pub mod iap;
 
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{fmt, future};
+use std::fmt;
 
 #[cfg(not(target_family = "wasm"))]
 use async_compat::{Compat, CompatExt};
-use async_stream::stream;
 use bytes::Bytes;
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use http::HeaderValue;
 pub use http::header::AUTHORIZATION;
 use http::header::HeaderName;
 pub use http::{HeaderMap, StatusCode};
 use reqwest::IntoUrl;
-use reqwest_eventsource::RequestBuilderExt;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use warp_core::channel::{Channel, ChannelState};
 use warp_core::execution_mode;
 use warp_core::operating_system_info::OperatingSystemInfo;
-use warp_errors::report_error;
 
 use crate::iap::IapTokenProvider;
 
@@ -46,12 +41,6 @@ pub mod headers {
     /// Custom Warp header indicating the client role. We don't use the User-Agent header
     /// because it can't be set from WASM.
     pub(crate) const WARP_CLIENT_ID: &str = "X-Warp-Client-ID";
-
-    /// Custom Warp header carrying the client's current OTEL span context in W3C
-    /// `traceparent` wire format. It is deliberately distinct from the standard
-    /// `traceparent` header so the server links its request span to the client
-    /// span rather than reparenting the server span under the client trace.
-    pub(crate) const TRACE_LINK_HEADER: &str = "X-Warp-Traceparent";
 }
 
 /// The environment variable containing extra HTTP headers to attach to requests.
@@ -68,45 +57,10 @@ pub struct Client {
     #[cfg(target_family = "wasm")]
     omit_credentials: bool,
 
-    /// A callback that is executed before every request is sent with a cloned
-    /// version of the outbound request.  If for some reason the request cannot be
-    /// cloned the function is not called.
-    before_request_sent: Option<RequestHookFn>,
-
-    /// A callback that is executed on after each response is received.
-    after_response_received: Option<ResponseHookFn>,
-
     /// If set, provides IAP bearer tokens to attach as `Proxy-Authorization`
     /// headers on outbound requests to the Warp staging server. Wired in by
     /// the app layer on IAP-enabled builds (staging).
     iap_token_provider: Option<Arc<dyn IapTokenProvider>>,
-}
-
-/// Type for 'hook' functions to be executed prior to sending a request. A reference to the
-/// outbound request object is given as the first argument. The second argument the request's
-/// serialized JSON payload, if any.
-pub type RequestHookFn = Box<dyn Fn(&reqwest::Request, &Option<String>) + 'static + Send + Sync>;
-
-/// Type for 'hook' functions to be executed after receiving a response. The sole argument is a
-/// reference to the inbound response object.
-pub type ResponseHookFn = Box<dyn Fn(&reqwest::Response) + 'static + Send + Sync>;
-
-cfg_if::cfg_if! {
-    if #[cfg(target_family = "wasm")] {
-        // The WASM version of this type has no bound on `Send`, which is not implemented on
-        // `wasm_bindgen::JsValue`, which is ultimately used in reqwest_eventsource::Error.
-        // Furthermore, `Send` is an unnecessary bound when targeting wasm because the browser is
-        // single-threaded (and we don't leverage WebWorkers for async execution in WoW).
-        pub type EventSourceStream = futures::stream::LocalBoxStream<
-            'static,
-            Result<reqwest_eventsource::Event, reqwest_eventsource::Error>,
-        >;
-    } else {
-        pub type EventSourceStream = futures::stream::BoxStream<
-            'static,
-            Result<reqwest_eventsource::Event, reqwest_eventsource::Error>,
-        >;
-    }
 }
 
 /// A custom request builder that is a wrapper around a `request::RequestBuilder`. Ensures any async
@@ -116,15 +70,11 @@ pub struct RequestBuilder<'a> {
     wrapped: reqwest::RequestBuilder,
     client: &'a Client,
 
-    // The JSON payload of the request, if any, serialized to a pretty-printed String.
-    serialized_payload: Option<String>,
-
     prevent_sleep_reason: Option<&'static str>,
 }
 
 pub struct Request {
     wrapped: reqwest::Request,
-    serialized_payload: Option<String>,
     prevent_sleep_reason: Option<&'static str>,
 }
 
@@ -199,18 +149,8 @@ impl Client {
             include_warp_headers: true,
             #[cfg(target_family = "wasm")]
             omit_credentials: false,
-            before_request_sent: None,
-            after_response_received: None,
             iap_token_provider: None,
         })
-    }
-
-    pub fn set_before_request_fn(&mut self, hook_fn: RequestHookFn) {
-        self.before_request_sent = Some(hook_fn);
-    }
-
-    pub fn set_after_response_fn(&mut self, hook_fn: ResponseHookFn) {
-        self.after_response_received = Some(hook_fn);
     }
 
     pub fn set_iap_token_provider(&mut self, provider: Arc<dyn IapTokenProvider>) {
@@ -232,7 +172,6 @@ impl Client {
         let mut builder = RequestBuilder {
             wrapped,
             client: self,
-            serialized_payload: None,
             prevent_sleep_reason: None,
         };
 
@@ -388,13 +327,6 @@ impl Client {
             }
         }
 
-        // Forward the current trace context so the server can attach a span link
-        // back to this client (cloud-agent) span. Only present when a valid OTEL
-        // span context exists; omitted otherwise (e.g. non-cloud-agent or wasm).
-        if let Some(trace_link) = current_trace_link_header() {
-            builder = builder.header(headers::TRACE_LINK_HEADER, trace_link);
-        }
-
         builder
     }
 
@@ -406,13 +338,8 @@ impl Client {
     async fn execute_inner(&self, request: Request) -> reqwest::Result<Response> {
         let Request {
             wrapped: request,
-            serialized_payload,
             prevent_sleep_reason,
         } = request;
-
-        if let Some(before_response_send_fn) = &self.before_request_sent {
-            before_response_send_fn(&request, &serialized_payload);
-        }
 
         let _guard = prevent_sleep_reason.map(prevent_sleep::prevent_sleep);
 
@@ -428,16 +355,11 @@ impl Client {
             }
         }
 
-        if let Some(after_response_received_fn) = &self.after_response_received {
-            after_response_received_fn(&result);
-        }
-
         Ok(Response(result))
     }
 }
 
-/// Whether `url` has the origin of the Warp server or its RTC endpoint.
-pub fn is_warp_server_origin(url: &reqwest::Url) -> bool {
+fn is_warp_server_origin(url: &reqwest::Url) -> bool {
     [
         ChannelState::server_root_url(),
         ChannelState::rtc_http_url(),
@@ -445,38 +367,6 @@ pub fn is_warp_server_origin(url: &reqwest::Url) -> bool {
     .iter()
     .filter_map(|candidate| reqwest::Url::parse(candidate.as_ref()).ok())
     .any(|candidate| candidate.origin() == url.origin())
-}
-
-/// Returns the current OTEL span context formatted as a W3C `traceparent` value
-/// (`00-<trace-id>-<span-id>-<flags>`) for the [`headers::TRACE_LINK_HEADER`]
-/// header, or `None` when there is no valid active span context.
-///
-/// A valid span context only exists in processes where the OpenTelemetry
-/// subscriber is installed — i.e. cloud-agent processes (see
-/// `app/src/tracing/native.rs`). Everywhere else, and on wasm, this returns
-/// `None` so the header is omitted rather than sent empty or malformed.
-#[cfg(not(target_family = "wasm"))]
-fn current_trace_link_header() -> Option<String> {
-    use opentelemetry::trace::TraceContextExt as _;
-    use tracing_opentelemetry::OpenTelemetrySpanExt as _;
-
-    let context = tracing::Span::current().context();
-    let span = context.span();
-    let span_context = span.span_context();
-    if !span_context.is_valid() {
-        return None;
-    }
-    Some(format!(
-        "00-{}-{}-{:02x}",
-        span_context.trace_id(),
-        span_context.span_id(),
-        span_context.trace_flags().to_u8(),
-    ))
-}
-
-#[cfg(target_family = "wasm")]
-fn current_trace_link_header() -> Option<String> {
-    None
 }
 
 impl<'a> RequestBuilder<'a> {
@@ -487,7 +377,6 @@ impl<'a> RequestBuilder<'a> {
     pub fn build_split(self) -> (&'a Client, reqwest::Result<Request>) {
         let request = self.wrapped.build().map(|request| Request {
             wrapped: request,
-            serialized_payload: self.serialized_payload,
             prevent_sleep_reason: self.prevent_sleep_reason,
         });
         (self.client, request)
@@ -499,24 +388,14 @@ impl<'a> RequestBuilder<'a> {
     }
 
     pub fn json<T: Serialize + ?Sized>(self, json: &T) -> RequestBuilder<'a> {
-        let serialized_payload =
-            match serde_json::to_string_pretty(json).map_err(anyhow::Error::from) {
-                Ok(payload) => Some(payload),
-                Err(err) => {
-                    report_error!(err.context("Failed to serialize JSON request payload."));
-                    None
-                }
-            };
         Self {
             wrapped: self.wrapped.json(json),
-            serialized_payload,
             ..self
         }
     }
 
     pub fn proto<T: prost::Message>(self, proto: &T) -> RequestBuilder<'a> {
         let bytes = proto.encode_to_vec();
-        let serialized = String::from_utf8(bytes.clone());
 
         Self {
             wrapped: self
@@ -526,78 +405,7 @@ impl<'a> RequestBuilder<'a> {
                     HeaderValue::from_static("application/x-protobuf"),
                 )
                 .body(bytes),
-            serialized_payload: serialized.ok(),
             ..self
-        }
-    }
-
-    /// Sends the request to the endpoint, which is assumed to be a streaming server-sent-events
-    /// endpoint, and returns a corresponding `EventSource`.
-    pub fn eventsource(self) -> EventSourceStream {
-        let prevent_sleep_reason = self.prevent_sleep_reason;
-        cfg_if::cfg_if! {
-            if #[cfg(target_family = "wasm")] {
-                let mut stream = self.wrapped
-                    .eventsource()
-                    .expect("Request type for SSE endpoint must be cloneable.");
-
-                let stream = stream! {
-                    while let Some(event) = stream.next().await {
-                        match event {
-                            Ok(event) => {
-                                yield Ok(event);
-                            }
-                            Err(err) => {
-                                yield Err(err);
-
-                                // Close the stream if an error occurs.
-                                stream.close();
-                            }
-                        }
-                    }
-                };
-            } else {
-                let mut stream = self.wrapped
-                    .eventsource()
-                    .expect("Request type for SSE endpoint must be cloneable.");
-
-                let stream = stream! {
-                    // Wrap the stream with async-compat since reqwest requires Tokio.
-                    while let Some(event) = stream.next().compat().await {
-                        match event {
-                            Ok(event) => {
-                                yield Ok(event);
-                            }
-                            Err(err) => {
-                                yield Err(err);
-
-                                // Close the stream if an error occurs.
-                                stream.close();
-                            }
-                        }
-                    }
-                };
-            }
-        }
-        let stream = stream.take_while(|event| {
-            if let Err(reqwest_eventsource::Error::StreamEnded) = event {
-                return future::ready(false);
-            }
-            future::ready(true)
-        });
-
-        // Wrap the stream in one that holds onto a prevent_sleep guard, if one is required here.
-        let stream = prevent_sleep::Stream::wrap(
-            stream,
-            prevent_sleep_reason.map(prevent_sleep::prevent_sleep),
-        );
-
-        cfg_if::cfg_if! {
-            if #[cfg(target_family = "wasm")] {
-                stream.boxed_local()
-            } else {
-                stream.boxed()
-            }
         }
     }
 
@@ -660,17 +468,8 @@ impl<'a> RequestBuilder<'a> {
     }
 
     pub fn form<T: Serialize + ?Sized>(self, form: &T) -> RequestBuilder<'a> {
-        let serialized_payload =
-            match serde_urlencoded::to_string(form).map_err(anyhow::Error::from) {
-                Ok(payload) => Some(payload),
-                Err(err) => {
-                    report_error!(err.context("Failed to serialize url-encoded form payload"));
-                    None
-                }
-            };
         Self {
             wrapped: self.wrapped.form(form),
-            serialized_payload,
             ..self
         }
     }
@@ -804,52 +603,6 @@ impl Response {
 
     pub fn url(&self) -> &reqwest::Url {
         self.0.url()
-    }
-}
-
-/// Adapter to use our HTTP client wrapper with [`oauth2`]. This is modeled on the [`reqwest`]
-/// implementation of [`oauth2::AsyncHttpClient`].
-impl<'c> oauth2::AsyncHttpClient<'c> for Client {
-    type Error = oauth2::HttpClientError<reqwest::Error>;
-
-    #[cfg(target_arch = "wasm32")]
-    type Future = Pin<Box<dyn Future<Output = Result<oauth2::HttpResponse, Self::Error>> + 'c>>;
-    #[cfg(not(target_arch = "wasm32"))]
-    type Future =
-        Pin<Box<dyn Future<Output = Result<oauth2::HttpResponse, Self::Error>> + Send + 'c>>;
-
-    fn call(&'c self, request: oauth2::HttpRequest) -> Self::Future {
-        Box::pin(async move {
-            let uri = request.uri().to_string();
-            let include_warp_headers = Self::include_warp_http_headers(uri.clone());
-            let iap_headers = self.iap_headers_for(uri);
-            let builder = reqwest::RequestBuilder::from_parts(
-                self.wrapped.clone(),
-                request.try_into().map_err(Box::new)?,
-            );
-
-            let response = self
-                .builder(builder, include_warp_headers, iap_headers)
-                .send()
-                .await
-                .map_err(Box::new)?;
-
-            let mut builder = ::http::Response::builder().status(response.status());
-
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                builder = builder.version(response.0.version());
-            }
-
-            for (name, value) in response.0.headers().iter() {
-                builder = builder.header(name, value);
-            }
-
-            let response_body = response.bytes().await.map_err(Box::new)?.to_vec();
-            builder
-                .body(response_body)
-                .map_err(oauth2::HttpClientError::Http)
-        })
     }
 }
 

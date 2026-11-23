@@ -2,6 +2,9 @@ pub mod new_session_shell;
 pub mod startup_shell;
 pub mod working_directory_config;
 
+use settings::Setting;
+use warpui::{AppContext, SingletonEntity};
+
 use instant::Duration;
 use lazy_static::lazy_static;
 pub use new_session_shell::*;
@@ -11,8 +14,6 @@ use warp_core::settings::macros::define_settings_group;
 use warp_core::settings::{RespectUserSyncSetting, SupportedPlatforms, SyncToCloud};
 pub use working_directory_config::*;
 
-use crate::ai::blocklist::agent_view::toolbar_item::AgentToolbarItemKind;
-use crate::context_chips::ContextChipKind;
 use crate::context_chips::prompt::PromptSelection;
 
 lazy_static! {
@@ -133,148 +134,87 @@ impl GithubPrPromptChipDefaultValidation {
     }
 }
 
-/// Shared behavior for toolbar chip selection types.
-/// Each variant stores either a `Default` (resolved via type-specific defaults) or `Custom` left/right item lists.
-pub trait ToolbarChipSelection {
-    fn default_left_items() -> Vec<AgentToolbarItemKind>;
-    fn default_right_items() -> Vec<AgentToolbarItemKind>;
-    fn left_items(&self) -> Vec<AgentToolbarItemKind>;
-    fn right_items(&self) -> Vec<AgentToolbarItemKind>;
-
-    fn left_chips(&self) -> Vec<ContextChipKind> {
-        self.left_items()
-            .into_iter()
-            .filter_map(|item| match item {
-                AgentToolbarItemKind::ContextChip(kind) => Some(kind),
-                _ => None,
-            })
-            .collect()
-    }
-
-    fn right_chips(&self) -> Vec<ContextChipKind> {
-        self.right_items()
-            .into_iter()
-            .filter_map(|item| match item {
-                AgentToolbarItemKind::ContextChip(kind) => Some(kind),
-                _ => None,
-            })
-            .collect()
-    }
-
-    fn all_chips(&self) -> Vec<ContextChipKind> {
-        let mut chips = self.left_chips();
-        chips.extend(self.right_chips());
-        chips
-    }
-
-    fn all_items(&self) -> Vec<AgentToolbarItemKind> {
-        let mut items = self.left_items();
-        items.extend(self.right_items());
-        items
-    }
-}
-
+/// The default mode for new terminal sessions.
 #[derive(
-    Clone,
-    Debug,
     Default,
-    Serialize,
-    Deserialize,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
     PartialEq,
-    Eq,
+    Copy,
+    Clone,
     schemars::JsonSchema,
     settings_value::SettingsValue,
 )]
 #[schemars(
-    description = "Agent toolbar layout configuration.",
+    description = "Default mode for new sessions.",
     rename_all = "snake_case"
 )]
-pub enum AgentToolbarChipSelection {
+pub enum DefaultSessionMode {
+    /// New sessions start in the terminal mode (default).
     #[default]
-    #[schemars(description = "Use the default toolbar layout.")]
-    Default,
-    #[schemars(description = "Use a custom arrangement of toolbar items.")]
-    Custom {
-        left: Vec<AgentToolbarItemKind>,
-        right: Vec<AgentToolbarItemKind>,
-    },
+    Terminal,
+    /// Legacy value for the removed built-in agent view.
+    Agent,
+
+    /// New sessions open a user-defined tab config.
+    /// The specific config is identified by the companion `default_tab_config_path` setting.
+    TabConfig,
+    /// New sessions open in a local Docker sandbox.
+    /// Requires the `LocalDockerSandbox` feature flag; falls back to `Terminal` when disabled.
+    DockerSandbox,
 }
 
-impl ToolbarChipSelection for AgentToolbarChipSelection {
-    fn default_left_items() -> Vec<AgentToolbarItemKind> {
-        AgentToolbarItemKind::default_left()
-    }
+settings::macros::implement_setting_for_enum!(
+    DefaultSessionMode,
+    SessionSettings,
+    SupportedPlatforms::ALL,
+    SyncToCloud::Never,
+    surface: settings::SettingSurfaces::GUI,
+    private: false,
+    toml_path: "general.default_session_mode",
+    description: "The default mode for new terminal sessions.",
+);
 
-    fn default_right_items() -> Vec<AgentToolbarItemKind> {
-        AgentToolbarItemKind::default_right()
-    }
-
-    fn left_items(&self) -> Vec<AgentToolbarItemKind> {
+impl DefaultSessionMode {
+    /// Display name for the settings dropdown.
+    pub fn display_name(&self) -> &'static str {
         match self {
-            Self::Default => Self::default_left_items(),
-            Self::Custom { left, .. } => left.clone(),
-        }
-    }
-
-    fn right_items(&self) -> Vec<AgentToolbarItemKind> {
-        match self {
-            Self::Default => Self::default_right_items(),
-            Self::Custom { right, .. } => right.clone(),
-        }
-    }
-}
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    schemars::JsonSchema,
-    settings_value::SettingsValue,
-)]
-#[schemars(
-    description = "CLI agent toolbar layout configuration.",
-    rename_all = "snake_case"
-)]
-pub enum CLIAgentToolbarChipSelection {
-    #[default]
-    #[schemars(description = "Use the default toolbar layout.")]
-    Default,
-    #[schemars(description = "Use a custom arrangement of toolbar items.")]
-    Custom {
-        left: Vec<AgentToolbarItemKind>,
-        right: Vec<AgentToolbarItemKind>,
-    },
-}
-
-impl ToolbarChipSelection for CLIAgentToolbarChipSelection {
-    fn default_left_items() -> Vec<AgentToolbarItemKind> {
-        AgentToolbarItemKind::cli_default_left()
-    }
-
-    fn default_right_items() -> Vec<AgentToolbarItemKind> {
-        AgentToolbarItemKind::cli_default_right()
-    }
-
-    fn left_items(&self) -> Vec<AgentToolbarItemKind> {
-        match self {
-            Self::Default => Self::default_left_items(),
-            Self::Custom { left, .. } => left.clone(),
-        }
-    }
-
-    fn right_items(&self) -> Vec<AgentToolbarItemKind> {
-        match self {
-            Self::Default => Self::default_right_items(),
-            Self::Custom { right, .. } => right.clone(),
+            DefaultSessionMode::Terminal => "Terminal",
+            DefaultSessionMode::Agent => "Agent",
+            DefaultSessionMode::TabConfig => "Tab Config",
+            DefaultSessionMode::DockerSandbox => "Local Docker Sandbox",
         }
     }
 }
 
 define_settings_group!(SessionSettings, settings: [
+    // Use `default_session_mode()` to resolve legacy and unsupported modes.
+    default_session_mode_internal: DefaultSessionMode,
+
+    // The file path of the tab config used when default_session_mode_internal is TabConfig.
+    // Only read when mode is TabConfig; ignored for all other modes.
+    // Machine-local (tab config paths vary per machine), so never synced to cloud.
+    default_tab_config_path: DefaultTabConfigPath {
+        type: String,
+        default: String::new(),
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Never,
+        surface: settings::SettingSurfaces::GUI,
+        private: false,
+        toml_path: "general.default_tab_config_path",
+    }
+
+    include_agent_commands_in_history: IncludeAgentCommandsInHistory {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Never,
+        surface: settings::SettingSurfaces::GUI,
+        private: false,
+        toml_path: "agents.warp_agent.input.include_agent_commands_in_history",
+        description: "Whether agent-executed commands are included in command history.",
+    }
     working_directory_config: WorkingDirectoryConfig,
     startup_shell_override: StartupShellOverride {
         type: StartupShell,
@@ -377,36 +317,6 @@ define_settings_group!(SessionSettings, settings: [
         toml_path: "agents.warp_agent.input.show_model_selectors_in_prompt",
         description: "Whether to show AI model selectors in the input prompt.",
     },
-    agent_footer_chip_selection: AgentToolbarChipSelectionSetting {
-        type: AgentToolbarChipSelection,
-        default: AgentToolbarChipSelection::default(),
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
-        private: false,
-        toml_path: "agents.warp_agent.input.agent_toolbar_chip_selection_setting",
-        description: "Controls the layout of context chips in the Agent Mode toolbar.",
-    },
-    cli_agent_footer_chip_selection: CLIAgentToolbarChipSelectionSetting {
-        type: CLIAgentToolbarChipSelection,
-        default: CLIAgentToolbarChipSelection::default(),
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
-        private: false,
-        toml_path: "agents.third_party.cli_agent_toolbar_chip_selection_setting",
-        description: "Controls the layout of context chips in the CLI Agent toolbar.",
-    },
-    notification_toast_duration_secs: NotificationToastDurationSecs {
-        type: u64,
-        default: 8,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
-        private: false,
-        toml_path: "notifications.toast_duration_secs",
-        description: "How long notification toasts are displayed, in seconds.",
-    },
     // Tracks whether the `gh` CLI is installed and authenticated on this machine.
     // Not synced because `gh` CLI availability is machine-specific.
     github_pr_chip_default_validation: GithubPrChipDefaultValidation {
@@ -414,18 +324,6 @@ define_settings_group!(SessionSettings, settings: [
         default: GithubPrPromptChipDefaultValidation::Unvalidated,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
-        surface: settings::SettingSurfaces::GUI,
-        private: true,
-    },
-    // One-time flag: whether we've already migrated the handoff-to-cloud chip
-    // into a user's custom agent toolbar layout. When `Default`, the chip is
-    // already present via `AgentToolbarItemKind::default_right()`, so this
-    // only matters for `Custom` layouts that were saved before the chip existed.
-    did_add_handoff_chip_to_toolbar: DidAddHandoffChipToToolbar {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
         surface: settings::SettingSurfaces::GUI,
         private: true,
     },
@@ -442,3 +340,52 @@ settings::macros::implement_setting_for_enum!(
     max_table_depth: 1,
     description: "Controls the working directory used when opening new sessions.",
 );
+
+impl SessionSettings {
+    pub fn default_session_mode(&self) -> DefaultSessionMode {
+        let mode = *self.default_session_mode_internal.value();
+        match mode {
+            // Terminal and TabConfig don't require AI.
+            DefaultSessionMode::Terminal | DefaultSessionMode::TabConfig => mode,
+            DefaultSessionMode::Agent => DefaultSessionMode::Terminal,
+            // DockerSandbox is gated on its feature flag; fall back to Terminal
+            // when disabled so a stale stored value doesn't wedge the user.
+            DefaultSessionMode::DockerSandbox => {
+                if !crate::ChannelState::is_windows_warp_ish()
+                    && warp_core::features::FeatureFlag::LocalDockerSandbox.is_enabled()
+                {
+                    mode
+                } else {
+                    DefaultSessionMode::Terminal
+                }
+            }
+        }
+    }
+
+    /// Returns the stored default tab config path (only meaningful when mode is `TabConfig`).
+    pub fn default_tab_config_path(&self) -> &str {
+        &self.default_tab_config_path
+    }
+
+    /// Looks up the `TabConfig` matching the stored `default_tab_config_path`.
+    /// Returns `None` if the path is empty or no loaded config matches.
+    pub fn resolved_default_tab_config(
+        &self,
+        app: &AppContext,
+    ) -> Option<crate::tab_configs::TabConfig> {
+        let path_str = self.default_tab_config_path.as_str();
+        if path_str.is_empty() {
+            return None;
+        }
+        let path = std::path::Path::new(path_str);
+        crate::user_config::WarpConfig::as_ref(app)
+            .tab_configs()
+            .iter()
+            .find(|config| config.source_path.as_deref().is_some_and(|p| p == path))
+            .cloned()
+    }
+}
+
+#[cfg(test)]
+#[path = "session_settings_cli_tests.rs"]
+mod cli_tests;
