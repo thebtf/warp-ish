@@ -166,6 +166,7 @@ pub struct DropdownItem<A: DropdownItemAction = ()> {
     family_id: Option<FamilyId>,
     /// Optional hover tooltip shown over the row.
     tooltip: Option<String>,
+    wrap_label: bool,
     /// Optional clip config controlling how `display_text` is clipped when it
     /// would overflow the row width. Forwarded to [`MenuItemFields`].
     clip_config: Option<ClipConfig>,
@@ -184,6 +185,7 @@ where
             action,
             family_id: None,
             tooltip: None,
+            wrap_label: false,
             clip_config: None,
         }
     }
@@ -202,6 +204,11 @@ where
         self
     }
 
+    pub fn with_wrapped_label(mut self) -> Self {
+        self.wrap_label = true;
+        self
+    }
+
     /// Set a [`ClipConfig`] for this row. When set, the dropdown's text-layout
     /// layer clips `display_text` at the actual rendered width instead of
     /// callers having to pre-shrink the string.
@@ -216,10 +223,15 @@ where
     A: DropdownItemAction,
 {
     fn from(dropdown_item: &DropdownItem<A>) -> MenuItem<DropdownAction> {
-        let mut menu_item = MenuItemFields::new(dropdown_item.display_text.clone())
-            .with_on_select_action(DropdownAction::SelectActionAndClose(
-                dropdown_item.action.clone_box(),
-            ));
+        let label = dropdown_item.display_text.clone();
+        let mut menu_item = if dropdown_item.wrap_label {
+            MenuItemFields::new_wrapped(label)
+        } else {
+            MenuItemFields::new(label)
+        }
+        .with_on_select_action(DropdownAction::SelectActionAndClose(
+            dropdown_item.action.clone_box(),
+        ));
         if let Some(tooltip) = &dropdown_item.tooltip {
             menu_item = menu_item.with_tooltip(tooltip.clone());
         }

@@ -12,6 +12,9 @@ use crate::terminal::session_settings::{SessionSettings, SessionSettingsChangedE
 use crate::view_components::dropdown::TOP_MENU_BAR_HEIGHT;
 use crate::view_components::{Dropdown, DropdownItem};
 
+#[cfg(windows)]
+mod windows;
+
 /// A view for configuring the initial shell for new sessions. This can be the
 /// user's login shell, the default installed version of zsh, bash, or fish,
 /// or an arbitrary user-provided path.
@@ -60,6 +63,13 @@ impl StartupShellView {
         let shell_dropdown = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = Dropdown::new(ctx);
             dropdown.set_top_bar_max_width(200.);
+            #[cfg(windows)]
+            {
+                dropdown.set_menu_header_text_override(|label| {
+                    label.lines().next().unwrap_or_default().to_owned()
+                });
+                dropdown.set_menu_width(360., ctx);
+            }
             dropdown
         });
 
@@ -110,19 +120,31 @@ impl StartupShellView {
         ctx: &mut ViewContext<Self>,
     ) {
         dropdown.update(ctx, |dropdown, ctx| {
-            let mut items = vec![DropdownItem::new(
-                "Default",
-                NewSessionShellAction::Set(AvailableShell::default()),
-            )];
+            let mut items = Vec::new();
             let shell_to_index = AvailableShells::handle(ctx).read(ctx, |model, _| {
                 let mut shell_to_index = std::collections::HashMap::new();
-                // Iterate over each shell in the model and add it to the dropdown if it's valid.
-                for shell_entry in model.get_available_shells() {
-                    items.push(DropdownItem::new(
-                        model.display_name_for_shell(shell_entry),
-                        NewSessionShellAction::Set(shell_entry.clone()),
-                    ));
-                    shell_to_index.insert(shell_entry.clone(), items.len() - 1);
+                #[cfg(not(windows))]
+                let shell_items = std::iter::once((
+                    AvailableShell::default(),
+                    DropdownItem::new(
+                        "Default",
+                        NewSessionShellAction::Set(AvailableShell::default()),
+                    ),
+                ))
+                .chain(model.get_available_shells().map(|shell| {
+                    (
+                        shell.clone(),
+                        DropdownItem::new(
+                            model.display_name_for_shell(shell),
+                            NewSessionShellAction::Set(shell.clone()),
+                        ),
+                    )
+                }));
+                #[cfg(windows)]
+                let shell_items = windows::shell_items(model);
+                for (shell, item) in shell_items {
+                    items.push(item);
+                    shell_to_index.insert(shell, items.len() - 1);
                 }
 
                 shell_to_index

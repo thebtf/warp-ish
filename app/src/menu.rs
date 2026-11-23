@@ -283,7 +283,7 @@ pub enum MenuItemLabel {
     // A label that can take up multiple lines. Doesn't support submenus yet.
     MultilineText {
         label: String,
-        max_lines: usize,
+        max_lines: Option<usize>,
     },
     Icon {
         path: &'static str,
@@ -390,17 +390,20 @@ impl MenuItemLabel {
                 Shrinkable::new(4., text.finish()).finish()
             }
             Self::MultilineText { label, max_lines } => {
-                let max_height_for_n_lines =
-                    *max_lines as f32 * font_size * appearance.line_height_ratio();
-                ConstrainedBox::new(
-                    Text::new(label.clone(), font_family, font_size)
-                        .with_color(primary_color.into())
-                        .autosize_text(MINIMUM_MENU_ITEM_FONT_SIZE)
-                        .soft_wrap(true)
-                        .finish(),
-                )
-                .with_max_height(max_height_for_n_lines)
-                .finish()
+                let text = Text::new(label.clone(), font_family, font_size)
+                    .with_color(primary_color.into())
+                    .autosize_text(MINIMUM_MENU_ITEM_FONT_SIZE)
+                    .soft_wrap(true)
+                    .finish();
+                if let Some(max_lines) = max_lines {
+                    ConstrainedBox::new(text)
+                        .with_max_height(
+                            *max_lines as f32 * font_size * appearance.line_height_ratio(),
+                        )
+                        .finish()
+                } else {
+                    text
+                }
             }
             Self::Icon { path, color, .. } => {
                 // TODO figure out the sizes
@@ -656,7 +659,14 @@ impl<A: Action + Clone> MenuItemFields<A> {
     pub fn new_multiline<T: Into<String>>(label: T, max_lines: usize) -> Self {
         Self::from_label(MenuItemLabel::MultilineText {
             label: label.into(),
-            max_lines,
+            max_lines: Some(max_lines),
+        })
+    }
+
+    pub fn new_wrapped<T: Into<String>>(label: T) -> Self {
+        Self::from_label(MenuItemLabel::MultilineText {
+            label: label.into(),
+            max_lines: None,
         })
     }
 

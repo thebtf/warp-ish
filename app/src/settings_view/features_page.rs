@@ -6127,6 +6127,21 @@ impl SettingsWidget for DefaultSessionModeWidget {
             None,
             appearance,
         );
+        let value = if ChannelState::is_windows_warp_ish() {
+            let settings = SessionSettings::as_ref(app);
+            let tab_config = if settings.default_session_mode() == DefaultSessionMode::TabConfig {
+                settings.resolved_default_tab_config(app)
+            } else {
+                None
+            };
+            let text = tab_config.map_or_else(
+                || DefaultSessionMode::Terminal.display_name().to_string(),
+                |config| config.name,
+            );
+            render_dropdown_item_label(text, None, None, appearance)
+        } else {
+            ChildView::new(&view.default_session_mode_dropdown).finish()
+        };
 
         Flex::row()
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
@@ -6140,7 +6155,7 @@ impl SettingsWidget for DefaultSessionModeWidget {
                 )
                 .finish(),
             )
-            .with_child(ChildView::new(&view.default_session_mode_dropdown).finish())
+            .with_child(value)
             .finish()
     }
 }
