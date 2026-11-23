@@ -8,7 +8,7 @@ Param (
 
     [Alias('check-only')]
     [Switch]$CHECK_ONLY,
-    [ValidateSet('app', 'tui', 'cli')]
+    [ValidateSet('app', 'cli')]
     [String]$ARTIFACT = 'app',
 
     [ValidateSet('local', 'dev', 'preview', 'stable', 'oss')]
@@ -16,7 +16,7 @@ Param (
 
     [Alias('release-tag')]
     [String]$RELEASE_TAG = '',
-    [String]$FEATURES = 'release_bundle,crash_reporting,gui',
+    [String]$FEATURES = 'release_bundle,gui',
 
     # Builds only the Warp binary, skips the installer.
     [Switch]$SKIP_BUILD_INSTALLER = $False,
@@ -104,14 +104,13 @@ function Assert-ValidSignature {
 $WORKSPACE_ROOT_DIR = $PWD.Path
 $CARGO_TARGET_DIR = $WORKSPACE_ROOT_DIR + '\target'
 $WINDOWS_INSTALLER_DIR = $WORKSPACE_ROOT_DIR + '\script\windows'
-$IS_TUI = $ARTIFACT -eq 'tui'
 $IS_CLI = $ARTIFACT -eq 'cli'
 
 if ($DEBUG_BUILD) {
     $CARGO_PROFILE = 'dev'
-} elseif (($IS_TUI -or $IS_CLI) -and (("$CHANNEL" -eq 'local') -or ("$CHANNEL" -eq 'dev'))) {
+} elseif (($IS_CLI) -and (("$CHANNEL" -eq 'local') -or ("$CHANNEL" -eq 'dev'))) {
     $CARGO_PROFILE = 'rclida'
-} elseif ($IS_TUI -or $IS_CLI) {
+} elseif ($IS_CLI) {
     $CARGO_PROFILE = 'rcli'
 } elseif (("$CHANNEL" -eq 'local') -or ("$CHANNEL" -eq 'dev')) {
     # For dev bundles, we want to enable debug assertions to
@@ -144,7 +143,6 @@ if ("$CHANNEL" -eq 'local') {
     $WARP_BIN = 'dev'
     $BINARY_NAME = 'dev.exe'
     $APP_NAME = 'WarpDev'
-    $FEATURES = "$FEATURES,agent_mode_debug"
 } elseif ("$CHANNEL" -eq 'preview') {
     $WARP_BIN = 'preview'
     $BINARY_NAME = 'preview.exe'
@@ -158,78 +156,37 @@ if ("$CHANNEL" -eq 'local') {
     $WARP_BIN = 'warp-oss'
     $BINARY_NAME = 'warp-oss.exe'
     $APP_NAME = 'WarpOss'
-    # The OSS channel does not ship Sentry, so drop the crash_reporting feature
-    # (which would otherwise pull in the Sentry SDK as a dependency).
     $FEATURES = 'release_bundle,gui'
 }
 
-if ($IS_TUI) {
-    $WARP_BIN = switch ($CHANNEL) {
-        'local' { 'warp-tui' }
-        'oss' { 'warp-tui-oss' }
-        Default { "warp-tui-$CHANNEL" }
-    }
-    $BINARY_NAME = "$WARP_BIN.exe"
-    $APP_NAME = switch ($CHANNEL) {
-        'local' { 'WarpAgentCLI' }
-        'dev' { 'WarpAgentCLIDev' }
-        'preview' { 'WarpAgentCLIPreview' }
-        'stable' { 'WarpAgentCLI' }
-        'oss' { 'WarpAgentCLIOss' }
-    }
-    $CLI_NAME = switch ($CHANNEL) {
-        'local' { 'warp' }
-        'dev' { 'warp-dev' }
-        'preview' { 'warp-preview' }
-        'stable' { 'warp' }
-        'oss' { 'warp-oss' }
-    }
-    $INSTALL_DIR_NAME = switch ($CHANNEL) {
-        'local' { 'tui-local' }
-        'dev' { 'tui-dev' }
-        'preview' { 'tui-preview' }
-        'stable' { 'tui' }
-        'oss' { 'tui-oss' }
-    }
-    $FEATURES = 'release_bundle,standalone,voice_input'
-    if ("$CHANNEL" -ne 'oss') {
-        $FEATURES = "$FEATURES,crash_reporting"
-    }
-} elseif ($IS_CLI) {
+if ($IS_CLI) {
     # The CLI ships the same channel binary target as the app (no separate bin), so keep
-    # $WARP_BIN and the channel-scoped $FEATURES set above (crash_reporting, preview_channel,
-    # agent_mode_debug, etc.) but swap the app's `gui` feature for `standalone`, mirroring the
+    # $WARP_BIN and the channel-scoped $FEATURES set above, but swap the app's `gui` feature
+    # for `standalone`, mirroring the
     # macOS and Linux `--artifact cli` builds. Filtering (rather than overwriting) $FEATURES is
     # required so per-channel additions above -- e.g. preview_channel, required by the `preview`
     # cargo target -- survive into the CLI build.
     $BINARY_NAME = "$WARP_BIN.exe"
     $FEATURES = (($FEATURES -split ',') | Where-Object { $_ -ne 'gui' }) -join ','
     $FEATURES = "$FEATURES,standalone"
-} else {
-    # All app channels ship the v3 classifier and v2 heuristic.
-    $FEATURES = "$FEATURES,nld_classifier_v3,nld_heuristic_v2"
 }
 
+$IS_WARP_ISH = $CHANNEL -eq 'oss' -and -not ($IS_CLI)
+if ($IS_WARP_ISH) {
+    $BINARY_NAME = 'warp-ish.exe'
+    $APP_NAME = 'warp-ish'
+    $BUNDLE_ID = 'dev.warpish.WarpIsh'
+} else {
+    $BUNDLE_ID = "dev.warp.$APP_NAME"
+}
 $BINARY_PATH = "$CARGO_TARGET_OUTPUT_DIR\$BINARY_NAME"
-$BUNDLE_ID = "dev.warp.$APP_NAME"
 $INSTALLER_OUTPUT_DIR = "$WINDOWS_INSTALLER_DIR\Output"
 $INSTALLER_NAME = "$($APP_NAME)$($FILE_ENDING)"
 $INSTALLER_PATH = "$($INSTALLER_OUTPUT_DIR)\$($INSTALLER_NAME).exe"
-$PDB_BASENAME = if ($IS_TUI) {
-    # rustc normalizes hyphens to underscores in crate names, and MSVC uses
-    # that normalized crate name for the PDB even though Cargo exposes the
-    # executable under its original hyphenated target name.
-    $WARP_BIN.Replace('-', '_')
-} else {
-    $WARP_BIN
-}
+$PDB_BASENAME = $WARP_BIN
 $PDB_PATH = "$CARGO_TARGET_OUTPUT_DIR\$PDB_BASENAME.pdb"
-$CARGO_PACKAGE = if ($IS_TUI) { 'warp_tui' } else { 'warp' }
-$INSTALLER_SCRIPT = if ($IS_TUI) {
-    "$WINDOWS_INSTALLER_DIR\tui-installer.iss"
-} else {
-    "$WINDOWS_INSTALLER_DIR\windows-installer.iss"
-}
+$CARGO_PACKAGE = 'warp'
+$INSTALLER_SCRIPT = "$WINDOWS_INSTALLER_DIR\windows-installer.iss"
 
 # The CARGO_FULL_PROFILE environment variable is read by the `cargo` build
 # script (`app/build.rs`) to determine where to place `conpty.dll`.
@@ -286,8 +243,8 @@ Write-Output "Built for $ARCH with executable at $BINARY_PATH"
 
 # Prepare bundled resources
 if ($env:SKIP_SETTINGS_SCHEMA -ne '1' -and -not $env:SETTINGS_SCHEMA_EXECUTABLE -and -not $env:SETTINGS_SCHEMA_SOURCE) {
-    if ($IS_TUI -or $IS_CLI) {
-        Write-Error 'TUI and CLI bundles require SETTINGS_SCHEMA_SOURCE or SETTINGS_SCHEMA_EXECUTABLE.'
+    if ($IS_CLI) {
+        Write-Error 'CLI bundles require SETTINGS_SCHEMA_SOURCE or SETTINGS_SCHEMA_EXECUTABLE.'
         exit 1
     } elseif ($SKIP_BUILD_BINARY) {
         Write-Error '-skip_build_binary requires SETTINGS_SCHEMA_SOURCE or SETTINGS_SCHEMA_EXECUTABLE.'
@@ -300,15 +257,15 @@ if ($env:SKIP_SETTINGS_SCHEMA -ne '1' -and -not $env:SETTINGS_SCHEMA_EXECUTABLE 
 }
 $BUNDLED_RESOURCES_DIR = "$CARGO_TARGET_OUTPUT_DIR\resources"
 Write-Output 'Preparing bundled resources...'
-& "$WINDOWS_INSTALLER_DIR\prepare_bundled_resources.ps1" -DestinationDir "$BUNDLED_RESOURCES_DIR" -Channel "$CHANNEL"
+& "$WINDOWS_INSTALLER_DIR\prepare_bundled_resources.ps1" -DestinationDir "$BUNDLED_RESOURCES_DIR" -Channel "$CHANNEL" -TerminalOnly:$IS_WARP_ISH
 if (-Not $?) {
     Write-Error 'Failed to prepare bundled resources'
     exit 1
 }
-if ($IS_TUI -or $IS_CLI) {
-    # Both the TUI and CLI ship the ConPTY/OpenConsole payload and MSVC redistributable DLLs
-    # alongside the binary (see the packaging step in create_release.yml for the CLI, and the
-    # Inno Setup script for the TUI). Verify the files exist, and -- when requested -- are
+if ($IS_CLI) {
+    # The CLI ships the ConPTY/OpenConsole payload and MSVC redistributable DLLs
+    # alongside the binary (see the packaging step in create_release.yml).
+    # Verify the files exist, and -- when requested -- are
     # signed, before the CLI branch below hands off to the workflow's own packaging step,
     # which otherwise has no way to detect a missing or unsigned sidecar file.
     $WINDOWS_ASSETS_DIR = "$WORKSPACE_ROOT_DIR\app\assets\windows\$ARCH"
@@ -354,13 +311,6 @@ $ISCC_ARGS = @(
     "/DArch=$ARCH",
     "/DOutputName=$INSTALLER_NAME"
 )
-if ($IS_TUI) {
-    $ISCC_ARGS += @(
-        "/DWindowsAssetsDir=$WINDOWS_ASSETS_DIR",
-        "/DCLIName=$CLI_NAME",
-        "/DInstallDirName=$INSTALL_DIR_NAME"
-    )
-}
 # Also accept the sign tool command via env var
 if (-not $SIGN_TOOL_CMD -and $env:SIGN_TOOL_CMD) {
     $SIGN_TOOL_CMD = $env:SIGN_TOOL_CMD
@@ -383,8 +333,4 @@ if ($env:GITHUB_ACTIONS -eq 'true') {
     "installer_path=$INSTALLER_PATH" >> "$env:GITHUB_OUTPUT"
     "pdb_file_path=$PDB_PATH" >> "$env:GITHUB_OUTPUT"
     Write-Output '::echo::off'
-}
-
-if ($IS_TUI) {
-    Write-Output "Application installer: $INSTALLER_PATH"
 }

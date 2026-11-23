@@ -135,9 +135,7 @@ pub struct Dropdown<A: DropdownItemAction = ()> {
     /// stack via `add_positioned_overlay_child`, painting it in an
     /// `Overlay` layer that escapes parent clip bounds. When false, the
     /// menu is attached via `add_positioned_child` and paints in the
-    /// parent's Normal layer, the same way other AIBlock-internal
-    /// menus (e.g. the accept-and-autoexecute split-button menu in
-    /// `requested_command.rs` / `code_diff_view.rs`) do.
+    /// parent's Normal layer.
     ///
     /// Setting this to `false` is required for dropdowns rendered
     /// inside a `SelectableArea` whose menu items would otherwise lose

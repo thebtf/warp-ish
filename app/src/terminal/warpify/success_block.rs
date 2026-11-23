@@ -15,12 +15,12 @@ use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View
 use super::render::{HORIZONTAL_TEXT_MARGIN, SSH_DOCS_URL, SUBSHELL_DOCS_URL};
 use super::settings::WarpifySettings;
 use super::{WarpificationSource, render, subshell_bootstrap_success_block_bytes};
-use crate::ai::agent::ProgrammingLanguage;
-use crate::ai::blocklist::code_block::{CodeSnippetButtonHandles, render_runnable_code_snippet};
 use crate::appearance::Appearance;
+use crate::code::programming_language::ProgrammingLanguage;
 use crate::terminal::model::terminal_model::SubshellInitializationInfo;
 use crate::terminal::shell::{Shell, ShellType};
 use crate::ui_components::blended_colors;
+use crate::ui_components::code_block::{CodeSnippetButtonHandles, render_runnable_code_snippet};
 use crate::ui_components::icons::Icon as UiIcon;
 use crate::workspace::WorkspaceAction;
 
@@ -263,9 +263,6 @@ impl WarpifySuccessBlock {
         let selected_text = auto_warpify_snippet.selected_text.clone();
 
         // TODO(Simon): Implement full selection and copying functionality for the WarpifySuccessBlock.
-        // Look to the `EnvVarCollectionBlock` for the existing implementation paradigm. We don't
-        // yet have a robust way of ensuring that every aspect of text selection is implemented
-        // properly, so be extra careful not to miss any details!
         let output_grid = SelectableArea::new(
             auto_warpify_snippet.selection_handle.clone(),
             move |selection_args, _, _| {

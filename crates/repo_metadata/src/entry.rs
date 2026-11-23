@@ -147,7 +147,7 @@ impl Entry {
     ) -> Result<Self, BuildTreeError> {
         Self::build_tree_with_force_included_paths_and_ancestor(
             path,
-            files,
+            Some(files),
             gitignores,
             remaining_file_quota,
             BuildTreeOptions {
@@ -163,11 +163,11 @@ impl Entry {
         .await
     }
 
-    /// Builds the materialized tree and standing results during the same filesystem traversal.
+    /// Builds the tree and standing results in one traversal, optionally collecting a flat file list.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn build_tree_with_standing_queries(
         path: impl Into<PathBuf>,
-        files: &mut Vec<FileMetadata>,
+        files: Option<&mut Vec<FileMetadata>>,
         gitignores: &mut Vec<Arc<Gitignore>>,
         remaining_file_quota: Option<&mut usize>,
         options: BuildTreeOptions<'_>,
@@ -204,7 +204,7 @@ impl Entry {
     ) -> Result<Self, BuildTreeError> {
         Self::build_tree_with_force_included_paths_and_ancestor(
             path,
-            files,
+            Some(files),
             gitignores,
             remaining_file_quota,
             options,
@@ -227,7 +227,7 @@ impl Entry {
     ) -> Result<Self, BuildTreeError> {
         Self::build_tree_with_force_included_paths_and_ancestor(
             path,
-            files,
+            Some(files),
             gitignores,
             remaining_file_quota,
             BuildTreeOptions {
@@ -246,7 +246,7 @@ impl Entry {
     #[allow(clippy::too_many_arguments)]
     async fn build_tree_with_force_included_paths_and_ancestor(
         path: impl Into<PathBuf>,
-        files: &mut Vec<FileMetadata>,
+        mut files: Option<&mut Vec<FileMetadata>>,
         gitignores: &mut Vec<Arc<Gitignore>>,
         remaining_file_quota: Option<&mut usize>,
         options: BuildTreeOptions<'_>,
@@ -396,8 +396,12 @@ impl Entry {
                                 {
                                     return Err(BuildTreeError::ExceededMaxFileLimit);
                                 }
-                                let metadata =
-                                    consume_file(&child_path, ignored, files, &mut quota);
+                                let metadata = consume_file(
+                                    &child_path,
+                                    ignored,
+                                    files.as_deref_mut(),
+                                    &mut quota,
+                                );
                                 let child_index = nodes.len();
                                 nodes.push(Some(NodeBuilder::File(metadata)));
                                 push_child(&mut nodes, job.index, child_index);
@@ -644,19 +648,20 @@ fn evaluate_entry(
     }
 }
 
-/// Records a file: decrements the budget (saturating), constructs metadata, and
-/// appends it to the flat `files` list.
+/// Records a file and spends one unit of budget, optionally collecting flat metadata.
 fn consume_file(
     path: &Path,
     ignored: bool,
-    files: &mut Vec<FileMetadata>,
+    files: Option<&mut Vec<FileMetadata>>,
     quota: &mut Option<usize>,
 ) -> FileMetadata {
     if let Some(remaining) = quota.as_mut() {
         *remaining = remaining.saturating_sub(1);
     }
     let metadata = FileMetadata::new(path.to_path_buf(), ignored);
-    files.push(metadata.clone());
+    if let Some(files) = files {
+        files.push(metadata.clone());
+    }
     metadata
 }
 

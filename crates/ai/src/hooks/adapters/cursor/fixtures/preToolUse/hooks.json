@@ -1,1 +1,0 @@
-{ "version": 1, "hooks": { "preToolUse": [ { "command": "./hooks/pre-tool.sh", "matcher": "Shell" } ] } }

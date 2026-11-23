@@ -1,10 +1,9 @@
+use std::ffi::OsStr;
 use std::sync::OnceLock;
 use std::{env, path};
 
 use anyhow::{Result, anyhow};
-use warpui::{AppContext, SingletonEntity};
-
-use crate::system::SystemInfo;
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
 
 const KASPERSKY_PROCESS_NAME: &str = "avp";
 
@@ -25,18 +24,18 @@ static KASPERSKY_RUNNING: OnceLock<bool> = OnceLock::new();
 /// The result is cached for the lifetime of the process: antivirus presence does not meaningfully
 /// change mid-session, and the full process-table enumeration this requires is expensive enough on
 /// Windows that repeating it per session bootstrap can trip the DPC watchdog.
-pub fn is_kaspersky_running(ctx: &mut AppContext) -> bool {
-    if let Some(cached) = KASPERSKY_RUNNING.get() {
-        return *cached;
-    }
-
-    let running = SystemInfo::handle(ctx).update(ctx, |system_info, _| {
-        system_info.refresh_all_processes();
-        system_info
-            .processes_by_name(KASPERSKY_PROCESS_NAME)
+pub fn is_kaspersky_running() -> bool {
+    *KASPERSKY_RUNNING.get_or_init(|| {
+        let mut system = System::new();
+        // Per-process CPU sampling can trip the Windows DPC watchdog.
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing(),
+        );
+        system
+            .processes_by_name(OsStr::new(KASPERSKY_PROCESS_NAME))
             .next()
             .is_some()
-    });
-
-    *KASPERSKY_RUNNING.get_or_init(|| running)
+    })
 }

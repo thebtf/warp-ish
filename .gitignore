@@ -70,3 +70,8 @@ __pycache__/
 # Project notes
 .note/
 .claude/scheduled_tasks.lock
+
+
+# warp-ish local build products and verification evidence
+/.agent/build/
+/.agent/runs/

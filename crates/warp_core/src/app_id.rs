@@ -4,7 +4,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 /// An application's canonical identifier.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppId {
     qualifier: Cow<'static, str>,
     organization: Cow<'static, str>,
@@ -12,6 +12,14 @@ pub struct AppId {
 }
 
 impl AppId {
+    #[cfg(windows)]
+    pub(crate) const WARP_ISH_SLUG: &str = "warp-ish";
+
+    #[cfg(windows)]
+    pub fn windows_warp_ish() -> Self {
+        Self::new("dev", "warpish", "WarpIsh")
+    }
+
     /// Constructs a new [`AppId`] from its constituent parts.
     pub fn new(
         qualifier: impl Into<Cow<'static, str>>,

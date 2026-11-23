@@ -6,7 +6,6 @@ use crate::app_state::{
     PaneNodeSnapshot, SplitDirection, TabGroupSnapshot, TabSnapshot, TerminalPaneSnapshot,
     WindowSnapshot,
 };
-use crate::drive::OpenWarpDriveObjectSettings;
 use crate::tab::SelectedTabColor;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::workspace::tab_group::TabGroupId;
@@ -25,24 +24,19 @@ fn single_tab_snapshot(root: PaneNodeSnapshot) -> AppState {
                 pinned: false,
             }],
             active_tab_index: 0,
-            team_uid: None,
             bounds: None,
             quake_mode: false,
             universal_search_width: None,
-            warp_ai_width: None,
             voltron_width: None,
-            warp_drive_index_width: None,
             left_panel_open: false,
             vertical_tabs_panel_open: false,
             fullscreen_state: Default::default(),
             left_panel_width: None,
             right_panel_width: None,
-            agent_management_filters: None,
             tab_groups: vec![],
         }],
         active_window_index: Some(0),
         block_lists: Default::default(),
-        running_mcp_servers: Default::default(),
     }
 }
 
@@ -51,24 +45,19 @@ fn multi_tab_snapshot(active_tab_index: usize, tabs: Vec<TabSnapshot>) -> AppSta
         windows: vec![WindowSnapshot {
             tabs,
             active_tab_index,
-            team_uid: None,
             bounds: None,
             quake_mode: false,
             universal_search_width: None,
-            warp_ai_width: None,
             voltron_width: None,
-            warp_drive_index_width: None,
             left_panel_open: false,
             vertical_tabs_panel_open: false,
             fullscreen_state: Default::default(),
             left_panel_width: None,
             right_panel_width: None,
-            agent_management_filters: None,
             tab_groups: vec![],
         }],
         active_window_index: Some(0),
         block_lists: Default::default(),
-        running_mcp_servers: Default::default(),
     }
 }
 
@@ -85,10 +74,7 @@ fn test_config_from_snapshot_flattens_single_pane() {
                 PaneNodeSnapshot::Leaf(LeafSnapshot {
                     is_focused: true,
                     custom_vertical_tabs_title: None,
-                    contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
-                        notebook_id: None,
-                        settings: OpenWarpDriveObjectSettings::default(),
-                    }),
+                    contents: LeafContents::Notebook(NotebookPaneSnapshot { path: None }),
                 }),
             ),
             (
@@ -102,11 +88,6 @@ fn test_config_from_snapshot_flattens_single_pane() {
                         is_active: true,
                         is_read_only: false,
                         shell_launch_data: None,
-                        input_config: None,
-                        llm_model_override: None,
-                        active_profile_id: None,
-                        conversation_ids_to_restore: vec![],
-                        active_conversation_id: None,
                     }),
                 }),
             ),
@@ -142,11 +123,6 @@ fn test_config_from_snapshot_filters_panes() {
                         is_active: true,
                         is_read_only: false,
                         shell_launch_data: None,
-                        input_config: None,
-                        llm_model_override: None,
-                        active_profile_id: None,
-                        conversation_ids_to_restore: vec![],
-                        active_conversation_id: None,
                     }),
                 }),
             ),
@@ -155,10 +131,7 @@ fn test_config_from_snapshot_filters_panes() {
                 PaneNodeSnapshot::Leaf(LeafSnapshot {
                     is_focused: false,
                     custom_vertical_tabs_title: None,
-                    contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
-                        notebook_id: None,
-                        settings: OpenWarpDriveObjectSettings::default(),
-                    }),
+                    contents: LeafContents::Notebook(NotebookPaneSnapshot { path: None }),
                 }),
             ),
             (
@@ -172,11 +145,6 @@ fn test_config_from_snapshot_filters_panes() {
                         is_active: true,
                         is_read_only: false,
                         shell_launch_data: None,
-                        input_config: None,
-                        llm_model_override: None,
-                        active_profile_id: None,
-                        conversation_ids_to_restore: vec![],
-                        active_conversation_id: None,
                     }),
                 }),
             ),
@@ -219,10 +187,7 @@ fn test_config_from_snapshot_filters_tabs() {
             PaneNodeSnapshot::Leaf(LeafSnapshot {
                 is_focused: true,
                 custom_vertical_tabs_title: None,
-                contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
-                    notebook_id: None,
-                    settings: OpenWarpDriveObjectSettings::default(),
-                }),
+                contents: LeafContents::Notebook(NotebookPaneSnapshot { path: None }),
             }),
         )],
     }));
@@ -378,11 +343,6 @@ fn test_config_with_active_tab_index() {
                                 is_active: true,
                                 is_read_only: false,
                                 shell_launch_data: None,
-                                input_config: None,
-                                llm_model_override: None,
-                                active_profile_id: None,
-                                conversation_ids_to_restore: vec![],
-                                active_conversation_id: None,
                             }),
                         }),
                     )],
@@ -416,10 +376,7 @@ fn test_config_with_active_tab_index_and_filtered_tabs() {
                         PaneNodeSnapshot::Leaf(LeafSnapshot {
                             is_focused: true,
                             custom_vertical_tabs_title: None,
-                            contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
-                                notebook_id: None,
-                                settings: OpenWarpDriveObjectSettings::default(),
-                            }),
+                            contents: LeafContents::Notebook(NotebookPaneSnapshot { path: None }),
                         }),
                     )],
                 }),
@@ -445,11 +402,6 @@ fn test_config_with_active_tab_index_and_filtered_tabs() {
                                 is_active: true,
                                 is_read_only: false,
                                 shell_launch_data: None,
-                                input_config: None,
-                                llm_model_override: None,
-                                active_profile_id: None,
-                                conversation_ids_to_restore: vec![],
-                                active_conversation_id: None,
                             }),
                         }),
                     )],
@@ -488,11 +440,6 @@ fn test_config_with_active_tab_being_filtered() {
                                 is_active: true,
                                 is_read_only: false,
                                 shell_launch_data: None,
-                                input_config: None,
-                                llm_model_override: None,
-                                active_profile_id: None,
-                                conversation_ids_to_restore: vec![],
-                                active_conversation_id: None,
                             }),
                         }),
                     )],
@@ -513,10 +460,7 @@ fn test_config_with_active_tab_being_filtered() {
                         PaneNodeSnapshot::Leaf(LeafSnapshot {
                             is_focused: true,
                             custom_vertical_tabs_title: None,
-                            contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
-                                notebook_id: None,
-                                settings: OpenWarpDriveObjectSettings::default(),
-                            }),
+                            contents: LeafContents::Notebook(NotebookPaneSnapshot { path: None }),
                         }),
                     )],
                 }),
@@ -550,11 +494,6 @@ fn terminal_tab(cwd: &str, group_id: Option<TabGroupId>) -> TabSnapshot {
                 is_active: true,
                 is_read_only: false,
                 shell_launch_data: None,
-                input_config: None,
-                llm_model_override: None,
-                active_profile_id: None,
-                conversation_ids_to_restore: vec![],
-                active_conversation_id: None,
             }),
         }),
         left_panel: None,
@@ -574,10 +513,7 @@ fn unsaveable_tab(group_id: Option<TabGroupId>) -> TabSnapshot {
         root: PaneNodeSnapshot::Leaf(LeafSnapshot {
             is_focused: true,
             custom_vertical_tabs_title: None,
-            contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
-                notebook_id: None,
-                settings: OpenWarpDriveObjectSettings::default(),
-            }),
+            contents: LeafContents::Notebook(NotebookPaneSnapshot { path: None }),
         }),
         left_panel: None,
         right_panel: None,

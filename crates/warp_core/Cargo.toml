@@ -43,6 +43,7 @@ strum_macros.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+uuid.workspace = true
 concat-idents.workspace = true
 url.workspace = true
 regex.workspace = true
@@ -58,7 +59,6 @@ warpui_core.workspace = true
 warpui_extras = { workspace = true, features = ["default"] }
 mockito = { workspace = true, optional = true }
 string-offset.workspace = true
-inventory = "0.3.20"
 chrono.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]

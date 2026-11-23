@@ -16,13 +16,8 @@ pub struct ChannelConfig {
     pub server_config: WarpServerConfig,
     /// Configuration for Oz/ambient agents.
     pub oz_config: OzConfig,
-    /// Configuration for telemetry sending, or [`None`] if telemetry should be
-    /// disabled for this build.
-    pub telemetry_config: Option<TelemetryConfig>,
     /// Configuration for autoupdate functionality.
     pub autoupdate_config: Option<AutoupdateConfig>,
-    /// Configuration for crash reporting.
-    pub crash_reporting_config: Option<CrashReportingConfig>,
     /// Configuration for statically-bundled MCP OAuth credentials.
     pub mcp_static_config: Option<McpStaticConfig>,
 }
@@ -48,8 +43,6 @@ pub struct WarpServerConfig {
     /// The URL for the session sharing server, or [`None`] if session sharing is not
     /// supported.
     pub session_sharing_server_url: Option<Cow<'static, str>>,
-    /// The API key to use when making requests to Firebase Authentication endpoints.
-    pub firebase_auth_api_key: Cow<'static, str>,
     /// Configuration for GCP Identity-Aware Proxy authentication, present only on
     /// staging builds. [`None`] on production builds.
     #[serde(default)]
@@ -63,7 +56,6 @@ impl WarpServerConfig {
             prewarmed_sandbox_control_url: None,
             rtc_server_url: "wss://rtc.app.warp.dev/graphql/v2".into(),
             session_sharing_server_url: Some("wss://sessions.app.warp.dev".into()),
-            firebase_auth_api_key: "AIzaSyBdy3O3S9hrdayLJxJ7mriBR4qgUaUygAs".into(),
             iap_config: None,
         }
     }
@@ -90,54 +82,11 @@ impl OzConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct TelemetryConfig {
-    /// The name of the file in which not-yet-sent telemetry events will be stored.
-    pub telemetry_file_name: Cow<'static, str>,
-    /// Configuration for Rudderstack, for reporting telemetry events.
-    pub rudderstack_config: Option<RudderStackConfig>,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize)]
-pub struct RudderStackConfig {
-    pub write_key: Cow<'static, str>,
-    pub root_url: Cow<'static, str>,
-    pub ugc_write_key: Cow<'static, str>,
-}
-
-impl RudderStackConfig {
-    pub fn non_ugc_destination(&self) -> RudderStackDestination {
-        RudderStackDestination {
-            root_url: self.root_url.clone(),
-            write_key: self.write_key.clone(),
-        }
-    }
-
-    pub fn ugc_destination(&self) -> RudderStackDestination {
-        RudderStackDestination {
-            root_url: self.root_url.clone(),
-            write_key: self.ugc_write_key.clone(),
-        }
-    }
-}
-
-#[derive(Default)]
-pub struct RudderStackDestination {
-    pub root_url: Cow<'static, str>,
-    pub write_key: Cow<'static, str>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
 pub struct AutoupdateConfig {
     /// The base URL for fetching autoupdate versions and updated release bundles.
     pub releases_base_url: Cow<'static, str>,
     /// Whether or not to display menu items relating to autoupdate.
     pub show_autoupdate_menu_items: bool,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct CrashReportingConfig {
-    /// The URL/DSN for sending error logs and crash reports to Sentry.
-    pub sentry_url: Cow<'static, str>,
 }
 
 /// Configuration for statically-bundled MCP OAuth credentials.
@@ -172,4 +121,41 @@ pub struct McpOAuthLoopbackClientConfig {
     /// secret support for providers that require one.
     #[serde(default)]
     pub client_secret: Option<Cow<'static, str>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_telemetry_config_is_ignored_without_changing_local_configuration() {
+        let config = ChannelConfig {
+            app_id: AppId::new("dev", "warpish", "WarpIsh"),
+            logfile_name: "warp-ish.log".into(),
+            server_config: WarpServerConfig::production(),
+            oz_config: OzConfig::production(),
+            autoupdate_config: Some(AutoupdateConfig {
+                releases_base_url: "https://updates.example.invalid".into(),
+                show_autoupdate_menu_items: true,
+            }),
+            mcp_static_config: None,
+        };
+        let expected = serde_json::to_value(&config).unwrap();
+        assert!(expected.get("telemetry_config").is_none());
+        let mut legacy = expected.clone();
+        legacy["telemetry_config"] = serde_json::json!({
+            "telemetry_file_name": "retired-telemetry.json",
+            "rudderstack_config": {
+                "write_key": "retired-non-ugc-key",
+                "root_url": "https://collector.example.invalid",
+                "ugc_write_key": "retired-ugc-key"
+            }
+        });
+
+        let legacy_json = serde_json::to_string(&legacy).unwrap();
+        let restored: ChannelConfig = serde_json::from_str(&legacy_json).unwrap();
+        assert_eq!(restored.app_id, config.app_id);
+        assert_eq!(restored.logfile_name, "warp-ish.log");
+        assert_eq!(serde_json::to_value(restored).unwrap(), expected);
+    }
 }

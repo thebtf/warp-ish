@@ -3,16 +3,10 @@
 //! This module provides the infrastructure for backing views to declaratively
 //! specify their header content without worrying about draggable behavior.
 
-use warp_core::ui::theme::Fill;
 use warpui::elements::{DraggableState, MouseStateHandle};
 use warpui::fonts::Properties;
 use warpui::text_layout::ClipConfig;
-use warpui::{AppContext, Element};
-
-/// Closure that renders sharing controls (share button, view-only indicator) for a pane header.
-/// Accepts optional icon color and button size overrides.
-type RenderSharingControlsFn<'a> =
-    Box<dyn Fn(&AppContext, Option<Fill>, Option<f32>) -> Option<Box<dyn Element>> + 'a>;
+use warpui::Element;
 
 /// Context provided to backing views when rendering header content.
 ///
@@ -26,27 +20,12 @@ pub struct HeaderRenderContext<'a> {
     /// Mouse state for the pane overflow button (owned by PaneHeader).
     pub overflow_button_mouse_state: MouseStateHandle,
     /// SavePosition ID for the overflow button (needed for overlay anchoring).
-    pub overflow_button_position_id: String,
+    pub overflow_button_position_id: &'a str,
     /// Whether the overflow menu has any items to display.
     pub has_overflow_items: bool,
     /// Extra left inset for the header's left-side controls, used to avoid
     /// overlap with a floating button overlay (e.g. the vertical tabs toggle).
     pub header_left_inset: f32,
-    /// Closure that renders the sharing controls. Use [`Self::sharing_controls`] to call this.
-    pub(super) render_sharing_controls_fn: RenderSharingControlsFn<'a>,
-}
-
-impl HeaderRenderContext<'_> {
-    /// Renders the sharing controls (share button, view-only indicator) for this pane.
-    /// Returns `None` if sharing is not enabled.
-    pub fn sharing_controls(
-        &self,
-        app: &AppContext,
-        icon_color: Option<Fill>,
-        button_size: Option<f32>,
-    ) -> Option<Box<dyn Element>> {
-        (self.render_sharing_controls_fn)(app, icon_color, button_size)
-    }
 }
 
 /// Render-time options for the header that apply to all header types.

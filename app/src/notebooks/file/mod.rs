@@ -3,8 +3,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use pathfinder_geometry::vector::vec2f;
-#[cfg(not(target_family = "wasm"))]
-use remote_server::manager::RemoteServerManager;
 use warp_core::features::FeatureFlag;
 use warp_core::ui::icons::ICON_DIMENSIONS;
 use warp_editor::model::CoreEditorModel;
@@ -14,7 +12,6 @@ use warp_files::{FileModel, FileModelEvent};
 use warp_util::file::FileId;
 use warp_util::local_or_remote_path::LocalOrRemotePath;
 use warp_util::path::user_friendly_path;
-use warp_util::remote_path::RemotePath;
 use warpui::accessibility::{AccessibilityContent, WarpA11yRole};
 #[cfg(feature = "local_fs")]
 use warpui::clipboard::ClipboardContent;
@@ -35,7 +32,6 @@ use warpui::{
 use super::context_menu::{ContextMenuAction, ContextMenuState, show_rich_editor_context_menu};
 use super::editor::view::{EditorViewEvent, RichTextEditorConfig, RichTextEditorView};
 use super::link::{NotebookLinks, SessionSource};
-use super::telemetry::NotebookTelemetryAction;
 use super::{NotebookLocation, styles};
 use crate::appearance::Appearance;
 #[cfg(feature = "local_fs")]
@@ -51,7 +47,6 @@ use crate::pane_group::pane::view::header::components::{
     render_three_column_header,
 };
 use crate::pane_group::{BackingView, PaneConfiguration, PaneEvent};
-use crate::server::telemetry::{NotebookActionEvent, NotebookTelemetryMetadata, TelemetryEvent};
 use crate::settings::FontSettings;
 use crate::terminal::model::session::Session;
 use crate::ui_components::icons::Icon;
@@ -67,7 +62,7 @@ pub use crate::util::openable_file_type::{is_jupyter_notebook_file, is_markdown_
 use crate::view_components::{MarkdownToggleEvent, MarkdownToggleView};
 use crate::workflows::{WorkflowSource, WorkflowType};
 use crate::workspace::ActiveSession;
-use crate::{cmd_or_ctrl_shift, safe_warn, send_telemetry_from_ctx};
+use crate::{cmd_or_ctrl_shift, safe_warn};
 
 /// Display mode for markdown files shown via the header segmented control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,7 +150,6 @@ impl From<ContextMenuAction> for FileNotebookAction {
 enum SourceFile {
     FileBased {
         path: LocalOrRemotePath,
-        /// Only meaningful for local paths; remote paths carry their own host information.
         session: Option<Arc<Session>>,
     },
     /// Static content provided inline (not backed by a file on disk).
@@ -400,18 +394,6 @@ impl FileNotebookView {
         });
     }
 
-    #[cfg(feature = "local_fs")]
-    fn open_telemetry_metadata(&self, ctx: &ViewContext<Self>) -> NotebookTelemetryMetadata {
-        NotebookTelemetryMetadata::new(None, None, NotebookLocation::LocalFile, None)
-            .with_markdown_table_count(
-                self.editor
-                    .as_ref(ctx)
-                    .model()
-                    .as_ref(ctx)
-                    .markdown_table_count(ctx),
-            )
-    }
-
     fn set_context(&mut self, path: &Path, session: Arc<Session>, ctx: &mut ViewContext<Self>) {
         self.location = Some(FileLocation::new(path, session.home_dir()));
         let title = self.title();
@@ -433,11 +415,9 @@ impl FileNotebookView {
         ctx.notify();
     }
 
-    /// Open a file from a local or remote path.
+    /// Open a local file. A saved remote path is displayed as unsupported.
     ///
-    /// `session` resolves display names and link context for local paths; when `None` the
-    /// view falls back to the active local session once one becomes available. Remote paths
-    /// ignore it because the `RemotePath` already carries host info.
+    /// The active local session supplies display and link context when available.
     pub fn open(
         &mut self,
         path: LocalOrRemotePath,
@@ -453,8 +433,15 @@ impl FileNotebookView {
                 });
                 self.open_local(local_path, session, ctx);
             }
-            LocalOrRemotePath::Remote(remote_path) => {
-                self.open_remote(remote_path, ctx);
+            path @ LocalOrRemotePath::Remote(_) => {
+                #[cfg(feature = "local_fs")]
+                self.release_file_model(ctx);
+                self.location = None;
+                self.pane_configuration.update(ctx, |pane_config, ctx| {
+                    pane_config.set_title(path.display_path(), ctx);
+                });
+                self.file_state = FileState::Error(SourceFile::FileBased { path, session: None });
+                ctx.notify();
             }
         }
     }
@@ -502,10 +489,6 @@ impl FileNotebookView {
                     match event {
                         FileModelEvent::FileLoaded { content, .. } => {
                             me.set_content(content, ctx);
-                            send_telemetry_from_ctx!(
-                                TelemetryEvent::OpenNotebook(me.open_telemetry_metadata(ctx)),
-                                ctx
-                            );
 
                             // Record the canonical path instead of the input path when available.
                             if let Some(canonical_path) = file_model.as_ref(ctx).file_path(file_id)
@@ -603,21 +586,6 @@ impl FileNotebookView {
         self.file_state = FileState::Loaded(SourceFile::Static { title });
     }
 
-    fn send_telemetry_action(&self, action: NotebookTelemetryAction, ctx: &mut ViewContext<Self>) {
-        send_telemetry_from_ctx!(
-            TelemetryEvent::NotebookAction(NotebookActionEvent {
-                action,
-                metadata: NotebookTelemetryMetadata::new(
-                    None,
-                    None,
-                    NotebookLocation::LocalFile,
-                    None
-                )
-            }),
-            ctx
-        );
-    }
-
     /// Reload the file that was most recently opened (or attempted to open).
     fn reload_file(&mut self, ctx: &mut ViewContext<Self>) {
         // We can take the file state here because either it's (a) already NoFile or (b) about to
@@ -634,112 +602,12 @@ impl FileNotebookView {
         self.open(path, session, ctx);
     }
 
-    fn open_remote(&mut self, remote_path: RemotePath, ctx: &mut ViewContext<Self>) {
-        let path_str = remote_path.path.as_str().to_string();
-        let display_name = remote_path
-            .path
-            .file_name()
-            .unwrap_or(path_str.as_str())
-            .to_string();
-
-        self.pane_configuration.update(ctx, |pane_config, ctx| {
-            pane_config.set_title(display_name, ctx);
-        });
-
-        let lor_path = LocalOrRemotePath::Remote(remote_path.clone());
-        self.file_state = FileState::Loading(SourceFile::FileBased {
-            path: lor_path,
-            session: None,
-        });
-
-        let host_id = remote_path.host_id.clone();
-        let manager = remote_server::manager::RemoteServerManager::handle(ctx);
-
-        // The disconnection banner appears and disappears with the host's connection state.
-        let watched_host_id = host_id.clone();
-        ctx.subscribe_to_model(&manager, move |_me, _handle, event, ctx| {
-            use remote_server::manager::RemoteServerManagerEvent;
-            match event {
-                RemoteServerManagerEvent::HostDisconnected { host_id }
-                | RemoteServerManagerEvent::HostConnected { host_id }
-                    if *host_id == watched_host_id =>
-                {
-                    ctx.notify();
-                }
-                _ => {}
-            }
-        });
-        let request = remote_server::proto::ReadFileContextRequest {
-            files: vec![remote_server::proto::ReadFileContextFile {
-                path: path_str,
-                line_ranges: vec![],
-            }],
-            max_file_bytes: None,
-            max_batch_bytes: None,
-        };
-
-        let handle = manager.as_ref(ctx).host_request_handle(&host_id);
-        ctx.spawn(
-            async move { handle.read_file_context(request).await },
-            move |me, result, ctx| match result {
-                Ok(response) => {
-                    if let Some(file_ctx) = response.file_contexts.first() {
-                        let text = match &file_ctx.content {
-                            Some(
-                                remote_server::proto::file_context_proto::Content::TextContent(
-                                    text,
-                                ),
-                            ) => text.as_str(),
-                            _ => "",
-                        };
-                        me.set_content(text, ctx);
-                        me.file_state = match mem::replace(&mut me.file_state, FileState::NoFile) {
-                            FileState::Loading(source) => FileState::Loaded(source),
-                            other => other,
-                        };
-                        me.pane_configuration.update(ctx, |pane_config, ctx| {
-                            pane_config.refresh_pane_header_overflow_menu_items(ctx);
-                        });
-                        ctx.notify();
-                        ctx.emit(FileNotebookEvent::FileLoaded);
-                    } else if let Some(failed) = response.failed_files.first() {
-                        let error_msg = failed
-                            .error
-                            .as_ref()
-                            .map(|e| e.message.as_str())
-                            .unwrap_or("unknown error");
-                        safe_warn!(
-                            safe: ("Failed to read remote markdown file"),
-                            full: ("Failed to read remote markdown file: {error_msg}")
-                        );
-                        me.file_state = match mem::replace(&mut me.file_state, FileState::NoFile) {
-                            FileState::Loading(source) => FileState::Error(source),
-                            other => other,
-                        };
-                        ctx.notify();
-                    }
-                }
-                Err(err) => {
-                    safe_warn!(
-                        safe: ("Remote server error reading markdown file"),
-                        full: ("Remote server error reading markdown file: {err}")
-                    );
-                    me.file_state = match mem::replace(&mut me.file_state, FileState::NoFile) {
-                        FileState::Loading(source) => FileState::Error(source),
-                        other => other,
-                    };
-                    ctx.notify();
-                }
-            },
-        );
-    }
-
     #[cfg(feature = "local_fs")]
     fn open_as_code(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Some(path) = self.file_state.path().cloned() {
+        if let Some(path) = self.local_path() {
             let scroll_fraction = self.scroll_fraction(ctx).map(ordered_float::OrderedFloat);
             ctx.emit(FileNotebookEvent::Pane(PaneEvent::ReplaceWithCodePane {
-                path,
+                path: LocalOrRemotePath::Local(path),
                 source: self.code_source.clone(),
                 scroll_fraction,
             }));
@@ -821,35 +689,13 @@ impl FileNotebookView {
                     source,
                 });
             }
-            EditorViewEvent::OpenedBlockInsertionMenu(source) => self.send_telemetry_action(
-                NotebookTelemetryAction::OpenBlockInsertionMenu { source: *source },
-                ctx,
-            ),
-            EditorViewEvent::OpenedEmbeddedObjectSearch => {
-                self.send_telemetry_action(NotebookTelemetryAction::OpenEmbeddedObjectSearch, ctx)
-            }
-            EditorViewEvent::OpenedFindBar => {
-                self.send_telemetry_action(NotebookTelemetryAction::OpenFindBar, ctx)
-            }
-            EditorViewEvent::InsertedEmbeddedObject(info) => self
-                .send_telemetry_action(NotebookTelemetryAction::InsertEmbeddedObject(*info), ctx),
-            EditorViewEvent::CopiedBlock { block, entrypoint } => self.send_telemetry_action(
-                NotebookTelemetryAction::CopyBlock {
-                    block: *block,
-                    entrypoint: *entrypoint,
-                },
-                ctx,
-            ),
-            EditorViewEvent::NavigatedCommands => {
-                self.send_telemetry_action(NotebookTelemetryAction::CommandKeyboardNavigation, ctx)
-            }
-            EditorViewEvent::ChangedSelectionMode(mode) => self.send_telemetry_action(
-                NotebookTelemetryAction::ChangeSelectionMode { mode: *mode },
-                ctx,
-            ),
-            EditorViewEvent::Navigate(_)
+            EditorViewEvent::OpenedBlockInsertionMenu(_)
+            | EditorViewEvent::OpenedFindBar
+            | EditorViewEvent::CopiedBlock { .. }
+            | EditorViewEvent::NavigatedCommands
+            | EditorViewEvent::ChangedSelectionMode(_)
+            | EditorViewEvent::Navigate(_)
             | EditorViewEvent::Edited
-            | EditorViewEvent::EditWorkflow(_)
             | EditorViewEvent::CmdEnter
             | EditorViewEvent::EscapePressed
             | EditorViewEvent::TextSelectionChanged => (),
@@ -923,6 +769,18 @@ impl FileNotebookView {
     }
 
     fn render_error(&self, source: &SourceFile, appearance: &Appearance) -> Box<dyn Element> {
+        if matches!(source.path(), Some(LocalOrRemotePath::Remote(_))) {
+            return Align::new(
+                appearance
+                    .ui_builder()
+                    .paragraph("Remote files are unavailable.".to_string())
+                    .with_style(self.state_style(appearance))
+                    .build()
+                    .finish(),
+            )
+            .finish();
+        }
+
         let error_text_color = appearance
             .theme()
             .sub_text_color(appearance.theme().background());
@@ -990,35 +848,13 @@ impl FileNotebookView {
         .finish()
     }
 
-    /// Returns `true` when this notebook is backed by a remote file whose
-    /// host no longer has any connected session.
-    #[cfg(not(target_family = "wasm"))]
-    fn is_remote_disconnected(&self, app: &AppContext) -> bool {
-        let Some(LocalOrRemotePath::Remote(remote_path)) = self.file_state.path() else {
-            return false;
-        };
-        RemoteServerManager::as_ref(app)
-            .client_for_host(&remote_path.host_id)
-            .is_none()
-    }
-
-    fn render_body(&self, appearance: &Appearance, _app: &AppContext) -> Box<dyn Element> {
+    fn render_body(&self, appearance: &Appearance) -> Box<dyn Element> {
         let body = match &self.file_state {
             FileState::NoFile => self.render_no_file(appearance),
             FileState::Loading(source) => self.render_loading(source, appearance),
             FileState::Error(source) => self.render_error(source, appearance),
             FileState::Loaded(_) => ChildView::new(&self.editor).finish(),
         };
-
-        #[cfg(not(target_family = "wasm"))]
-        if matches!(self.file_state, FileState::Loaded(_)) && self.is_remote_disconnected(_app) {
-            let banner =
-                crate::code::local_code_editor::render_remote_disconnected_banner(appearance);
-            let mut col = Flex::column();
-            col.add_child(banner);
-            col.add_child(Shrinkable::new(1., styles::wrap_body(body)).finish());
-            return col.finish();
-        }
 
         styles::wrap_body(body)
     }
@@ -1054,7 +890,7 @@ impl View for FileNotebookView {
 
         let column = Flex::column().with_children([
             self.render_title(appearance, font_settings),
-            Shrinkable::new(1., self.render_body(appearance, app)).finish(),
+            Shrinkable::new(1., self.render_body(appearance)).finish(),
         ]);
 
         let mut stack = Stack::new().with_child(column.finish());
@@ -1118,22 +954,12 @@ impl TypedActionView for FileNotebookView {
                         target,
                         line_col: None,
                     });
-                } else if let Some(path) = self.file_state.path().cloned() {
-                    // For remote files, open as a code editor pane.
-                    let scroll_fraction =
-                        self.scroll_fraction(ctx).map(ordered_float::OrderedFloat);
-                    ctx.emit(FileNotebookEvent::Pane(PaneEvent::ReplaceWithCodePane {
-                        path,
-                        source: None,
-                        scroll_fraction,
-                    }));
                 }
             }
             #[cfg(feature = "local_fs")]
             FileNotebookAction::OpenAsCode => self.open_as_code(ctx),
             FileNotebookAction::ContextMenu(action) => {
                 if matches!(action, ContextMenuAction::Open(_)) {
-                    self.send_telemetry_action(NotebookTelemetryAction::OpenContextMenu, ctx);
                     let copy_file_path = self.file_state.path().map(|p| p.display_path());
                     self.context_menu.set_copy_file_path(copy_file_path);
                 }

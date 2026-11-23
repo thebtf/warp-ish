@@ -5,15 +5,13 @@ use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::io::AsRawFd as _;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
-use std::{env, fs, str};
+use std::fs;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use channel_versions::VersionInfo;
 use command::r#async::Command;
 use command::blocking;
-use futures::{StreamExt, TryStreamExt as _};
-use futures_lite::future;
+use futures::StreamExt;
 use instant::Instant;
 use nix::errno::Errno;
 use nix::unistd::{fchown, getgid, getuid};
@@ -22,7 +20,6 @@ use warp_core::safe_error;
 use warp_errors::report_error;
 use warpui::{AppContext, ModelContext, SingletonEntity};
 
-use super::{DownloadReady, release_assets_directory_url};
 use crate::appearance::AppearanceManager;
 use crate::autoupdate::{AutoupdateStage, AutoupdateState};
 use crate::channel::{Channel, ChannelState};
@@ -88,15 +85,6 @@ pub(super) fn remove_old_executable() -> Result<()> {
     Ok(())
 }
 
-pub(super) fn manually_download_version(
-    channel: &Channel,
-    version_info: &VersionInfo,
-    ctx: &mut AppContext,
-) {
-    let url = update_url(*channel, version_info.version.as_str());
-    ctx.open_url(&url);
-}
-
 /// If the autoupdate state is ready, asynchronously apply the update and cleanup the autoupdate artifacts.
 ///
 /// The completion callback is invoked with `Ok(Some(version))` if an update was applied, and `Ok(None)` if there was no update.
@@ -158,13 +146,6 @@ pub(super) fn relaunch() -> Result<()> {
     // Pass a flag to the app to let it know it was restarted as part of the
     // autoupdate process.
     launch_command.push(format!(" --args {}", warp_cli::finish_update_flag()));
-    // If we're testing with a local copy of channel_versions.json, have the
-    // newly-started binary also reference that same file (so we can test
-    // displaying an updated changelog after an autoupdate).
-    if let Ok(path) = env::var("WARP_CHANNEL_VERSIONS_PATH") {
-        launch_command.push(format!(" --env WARP_CHANNEL_VERSIONS_PATH={path}"));
-    }
-
     // We need to make sure that the current Warp process is no longer running
     // before we spawn the new one, otherwise we can end up showing multiple
     // icons in the macOS dock.  To do this, we use an intermediary /bin/sh
@@ -262,32 +243,6 @@ pub async fn cleanup_all_except(preserve_update_id: Option<&str>) {
 }
 
 /// Determines if the user needs authorization in order to update Warp.
-async fn needs_authorization(bundle_path: &Path) -> Result<bool> {
-    // For the bundle path itself, check permissions without creating a test file so as to not
-    // interfere with code signing.
-    let bundle_dir_writable = permissions::is_writable(bundle_path)?;
-    if !bundle_dir_writable {
-        log::info!("App location is not writable, needs authorization");
-        return Ok(true);
-    } else {
-        log::info!("App location is writable");
-    }
-
-    if let Some(bundle_parent_path) = bundle_path.parent() {
-        if !is_directory_writable(bundle_parent_path).await? {
-            log::info!("App parent location is not writable, needs authorization");
-            return Ok(true);
-        } else {
-            log::info!("App parent location is writable");
-        }
-    }
-
-    Ok(false)
-}
-
-/// Determines if a directory is writable as part of an update. This means:
-/// * Warp can create files in the directory
-/// * Warp can modify the permissions of created files
 async fn is_directory_writable(directory: &Path) -> Result<bool> {
     // Just because we have writability access does not mean we can set the correct owner/group.
     // Test if we can set the owner/group on a temporarily created file. If we can, then we can
@@ -323,47 +278,6 @@ async fn is_directory_writable(directory: &Path) -> Result<bool> {
 
 /// Verifies that the staged bundle path has a valid macOS code signature, and that its
 /// team identifier matches Warp's team identifier.
-async fn verify_code_signature(component: &str, path: &Path) -> Result<()> {
-    // Verify the signature of the staged update bundle with team identifier
-    let codesign_verify_output = Command::new("/usr/bin/codesign")
-        .arg("-v")
-        .arg(format!(
-            "-R=certificate leaf[subject.OU] = \"{}\"",
-            warp_core::macos::APPLE_TEAM_ID
-        ))
-        .arg(path)
-        .output()
-        .await?;
-    ensure!(
-        codesign_verify_output.status.success(),
-        "Failed to verify code signature for {component} with team identifier: {codesign_verify_output:?}"
-    );
-
-    safe_info!(
-        safe: ("Code signature is valid for {component}"),
-        full: ("Code signature is valid for {}", path.display())
-    );
-
-    Ok(())
-}
-
-pub(super) async fn download_update_and_cleanup(
-    version_info: &VersionInfo,
-    update_id: &str,
-    last_successful_update_id: Option<&str>,
-    client: &http_client::Client,
-) -> Result<DownloadReady> {
-    let result =
-        download_and_extract_binary(ChannelState::channel(), version_info, update_id, client).await;
-    if result.is_err() {
-        cleanup_all_except(last_successful_update_id).await;
-    }
-    result
-}
-
-/// Apply the downloaded update.
-///
-/// This is async and should be run in a background task.
 async fn apply_update(channel: Channel, version_info: &VersionInfo, update_id: &str) -> Result<()> {
     let update_start = Instant::now();
 
@@ -532,103 +446,6 @@ impl Drop for StagedBundle {
     }
 }
 
-async fn download_and_extract_binary(
-    channel: Channel,
-    version_info: &VersionInfo,
-    update_id: &str,
-    client: &http_client::Client,
-) -> Result<DownloadReady> {
-    let bundle_path = PathBuf::from(get_bundle_path()?);
-    let needs_authorization = needs_authorization(bundle_path.as_path())
-        .await
-        .unwrap_or(true);
-    if needs_authorization {
-        return Ok(DownloadReady::NeedsAuthorization);
-    }
-
-    log::info!(
-        "Downloading update, version {} on channel {channel}",
-        &version_info.version,
-    );
-
-    let download_dir = get_download_dir(update_id);
-    log::info!("Creating download dir {:?}", &download_dir);
-    async_fs::create_dir_all(&download_dir).await?;
-
-    let dmg_path = download_dmg(&channel, version_info, update_id, client).await?;
-
-    // Mount the downloaded dmg so we can copy out the binary.
-    let mountpoint = mount_dmg(&dmg_path, update_id).await?;
-
-    let target = temporary_target_path(channel, version_info, &dmg_path)?;
-    // Copy the binary into the temporary directory where we downloaded the dmg.
-    copy_app_from_dmg(&channel, &mountpoint, &target).await?;
-
-    // Unmount the dmg once we no longer need it. This prevents lingering images from unapplied
-    // updates.
-    if let Err(err) = unmount_dmg(mountpoint).await {
-        let err = err.context("Error unmounting dmg for update");
-        warp_errors::report_error!(&err);
-    }
-
-    // Ensure that the new app we just downloaded has both integrity (e.g. no corrupted files)
-    // and validity (it was signed by us).
-    // Store the executable path in a variable to prevent temporary value issues.
-    let executable_path_buf = target.join(executable_path(channel));
-    let verification_start = Instant::now();
-    future::try_zip(
-        verify_code_signature("bundle", &target),
-        verify_code_signature("executable", executable_path_buf.as_path()),
-    )
-    .await?;
-
-    log::info!(
-        "Verified new app code signature in {:?}",
-        verification_start.elapsed()
-    );
-
-    Ok(DownloadReady::Yes)
-}
-
-async fn unmount_dmg(mountpoint: PathBuf) -> Result<()> {
-    let mut hdiutil_cmd = Command::new("/usr/bin/hdiutil");
-    hdiutil_cmd.arg("detach");
-    hdiutil_cmd.arg(&mountpoint);
-    hdiutil_cmd.arg("-force");
-
-    log::info!("Attempting to detach dmg with command \"{hdiutil_cmd:?}\"");
-
-    let output = hdiutil_cmd.output().await?;
-
-    ensure!(output.status.success(), "Failed to detach dmg: {output:?}");
-    log::info!("hdiutil detach succeeded: {output:?}");
-    Ok(())
-}
-
-async fn copy_app_from_dmg(channel: &Channel, mountpoint: &Path, target: &Path) -> Result<()> {
-    let mounted_app_path = mountpoint.join(app_name(*channel));
-
-    log::info!("Copying dmg contents from {mounted_app_path:?} to {target:?}");
-
-    let cp_output = Command::new("cp")
-        // Recursively copy the directory, preserving symlinks.
-        .arg("-R")
-        .arg(mounted_app_path)
-        .arg(target)
-        .output()
-        .await?;
-
-    ensure!(
-        cp_output.status.success(),
-        "Failed to copy app out of mounted dmg: {cp_output:?}"
-    );
-
-    Ok(())
-}
-
-// 10 minutes
-const DMG_TIMEOUT_S: u64 = 600;
-
 /// The temporary path for downloading the new dmg into.
 fn dmg_path(channel: &Channel, version_info: &VersionInfo, update_id: &str) -> PathBuf {
     let mut dir = get_download_dir(update_id);
@@ -653,79 +470,11 @@ fn temporary_target_path(
         .join(versioned_app_name(channel, &version_info.version)))
 }
 
-async fn download_dmg(
-    channel: &Channel,
-    version_info: &VersionInfo,
-    update_id: &str,
-    client: &http_client::Client,
-) -> Result<PathBuf> {
-    // TODO: Use a streaming fetch and and provide an api for tracking progress
-    let update_url = update_url(*channel, &version_info.version);
-    log::info!("Fetching new dmg at {update_url}");
-    let res = client
-        .get(&update_url)
-        .timeout(Duration::from_secs(DMG_TIMEOUT_S))
-        .send()
-        .await?;
-    let dmg_file = dmg_path(channel, version_info, update_id);
-
-    let mut file = async_fs::File::create(&dmg_file).await?;
-    futures_lite::io::copy(
-        res.bytes_stream()
-            .map_err(std::io::Error::other)
-            .into_async_read(),
-        &mut file,
-    )
-    .await?;
-    file.sync_data().await?;
-
-    log::info!("Wrote DMG to tempfile at {:?}", &dmg_file);
-    Ok(dmg_file)
-}
-
 fn get_download_dir(update_id: &str) -> PathBuf {
     let mut dir = warp_core::paths::cache_dir();
     dir.push("autoupdate");
     dir.push(update_id);
     dir
-}
-
-fn get_mountpoint(update_id: &str) -> PathBuf {
-    let mut volume = PathBuf::from("/Volumes");
-    volume.push(update_id);
-    volume
-}
-
-async fn mount_dmg(dmg_dir: &Path, update_id: &str) -> Result<PathBuf> {
-    let volume = get_mountpoint(update_id);
-    let mut hdiutil_cmd = Command::new("/usr/bin/hdiutil");
-    hdiutil_cmd.args(["attach", "-mountpoint"]);
-    hdiutil_cmd.arg(&volume);
-    // Explanation of flags:
-    // -nobrowse: Do not show the Warp DMG in Finder or similar apps.
-    // -noautoopen: Do not open the Warp DMG in Finder.
-    // -readonly: For safety, we mount read-only since there's no need to modify the new app version.
-    // -autofsck: Ensure that the DMG contents are verified. This is on by default for quarantined images, but macOS
-    //    doesn't necessarily recognize our download as such.
-    hdiutil_cmd.args(["-nobrowse", "-noautoopen", "-readonly", "-autofsck"]);
-    hdiutil_cmd.arg(dmg_dir);
-
-    log::info!("Attempting to mount dmg with command \"{hdiutil_cmd:?}\"");
-
-    let output = hdiutil_cmd.output().await?;
-
-    ensure!(output.status.success(), "Failed to mount dmg: {output:?}");
-
-    log::info!("hdiutil mount succeeded");
-    Ok(volume)
-}
-
-fn update_url(channel: Channel, version: &str) -> String {
-    format!(
-        "{}/{}",
-        release_assets_directory_url(channel, version),
-        dmg_name(channel)
-    )
 }
 
 fn app_name(channel: Channel) -> String {
@@ -734,20 +483,6 @@ fn app_name(channel: Channel) -> String {
 
 fn versioned_app_name(channel: Channel, version: &str) -> String {
     format!("{}({}).app", app_name_prefix(channel), version)
-}
-
-fn dmg_name(channel: Channel) -> String {
-    // If the user is on an Apple Silicon Mac, download an arm64-only bundle.
-    let is_arm64 = command::blocking::Command::new("uname")
-        .arg("-m")
-        .output()
-        .is_ok_and(|output| output.stdout.starts_with(b"arm64"));
-    if is_arm64 {
-        return format!("{}-arm64.dmg", app_name_prefix(channel));
-    }
-
-    // Otherwise, download a universal bundle.
-    format!("{}.dmg", app_name_prefix(channel))
 }
 
 fn app_name_prefix(channel: Channel) -> &'static str {

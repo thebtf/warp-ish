@@ -10,7 +10,6 @@ use std::{
     time::Duration,
 };
 
-use ai::diff_validation::DiffType;
 use futures::stream::AbortHandle;
 use lsp::types::FileLocation;
 use lsp::{
@@ -23,14 +22,12 @@ use num_traits::SaturatingSub;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::Vector2F;
-use remote_server::manager::RemoteServerManager;
 #[cfg(feature = "local_fs")]
 use repo_metadata::repositories::DetectedRepositories;
 use string_offset::CharOffset;
 use vec1::Vec1;
 use vim::vim::{MotionType, VimMode};
 use warp_core::r#async::debounce;
-use warp_core::features::FeatureFlag;
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::icons::Icon;
 use warp_editor::content::buffer::InitialBufferState;
@@ -59,16 +56,16 @@ use warpui::{
     ViewHandle, WindowId,
 };
 
-use crate::ai::persisted_workspace::{PersistedWorkspace, PersistedWorkspaceEvent};
+use crate::workspace::persisted_workspace::{PersistedWorkspace, PersistedWorkspaceEvent};
 use crate::code::buffer_location::LocalOrRemotePath as BufferFileLocation;
-use crate::code::editor::EditorReviewComment;
+use crate::code::editor::{DiffType, EditorReviewComment};
 use crate::code::editor::model::HoverableLink;
 use crate::code::footer::{CodeFooterView, CodeFooterViewEvent};
 use crate::code::global_buffer_model::{BufferState, GlobalBufferModel, GlobalBufferModelEvent};
 use crate::code::{SaveOutcome, ShowFindReferencesCardProvider};
 use crate::code_review::comments::CommentId;
 use crate::menu::{Event, Menu, MenuItem, MenuItemFields};
-use crate::settings::{AISettings, CodeSettings};
+use crate::settings::CodeSettings;
 use crate::terminal::TerminalView;
 
 const DROP_SHADOW_COLOR: ColorU = ColorU {
@@ -84,7 +81,6 @@ const HOVER_DEBOUNCE_PERIOD: Duration = Duration::from_millis(500);
 /// auto-save. Mirrors VS Code's default `files.autoSaveDelay` of 1000ms.
 const AUTO_SAVE_DEBOUNCE_PERIOD: Duration = Duration::from_millis(1000);
 
-use warp_core::send_telemetry_from_ctx;
 
 use super::ImmediateSaveError;
 use super::diff_viewer::DiffViewer;
@@ -92,7 +88,6 @@ use super::editor::scroll::{ScrollPosition, ScrollTrigger};
 use super::editor::view::{CodeEditorEvent, CodeEditorView};
 use super::find_references_view::{FindReferencesView, FindReferencesViewEvent};
 use super::language_server_extension::ProcessedDiagnostic;
-use super::lsp_telemetry::LspTelemetryEvent;
 
 type SaveCallback =
     Box<dyn FnOnce(SaveOutcome, &mut ViewContext<LocalCodeEditorView>) + Send + Sync + 'static>;
@@ -130,8 +125,6 @@ pub enum LocalCodeEditorEvent {
         relative_file_path: String,
         /// 1-indexed line range of the selection: `[start, end]` both inclusive.
         line_range: Range<LineCount>,
-        /// Literal text content of the selection.
-        selected_text: String,
     },
     DiscardUnsavedChanges {
         path: PathBuf,
@@ -161,9 +154,6 @@ pub enum LocalCodeEditorEvent {
     /// The workspace will handle opening a terminal with `tail -f` on the log file.
     OpenLspLogs {
         log_path: PathBuf,
-    },
-    RunTabConfigSkill {
-        path: PathBuf,
     },
     DelayedRenderingFlushed,
 }
@@ -283,9 +273,6 @@ pub struct LocalCodeEditorView {
     was_edited: bool,
     /// Content version of the base file state.
     base_content_version: Option<ContentVersion>,
-    /// Set to `true` when a `RemoteBufferConflict` event fires for this
-    /// editor's buffer. Cleared when the user discards or overwrites.
-    has_remote_conflict: bool,
     conflict_banner_mouse_states: ConflictResolutionBannerMouseStates,
     /// Default directory to use for save dialogs when creating new files
     default_directory: Option<PathBuf>,
@@ -522,7 +509,6 @@ impl LocalCodeEditorView {
             selection_as_context_tooltip: None,
             was_edited: false,
             base_content_version: None,
-            has_remote_conflict: false,
             conflict_banner_mouse_states: Default::default(),
             default_directory: None,
             lsp_server: None,
@@ -778,15 +764,6 @@ impl LocalCodeEditorView {
         request_offset: CharOffset,
         ctx: &mut ViewContext<Self>,
     ) {
-        if let Some(server) = &self.lsp_server {
-            send_telemetry_from_ctx!(
-                LspTelemetryEvent::FindReferencesShown {
-                    server_type: server.as_ref(ctx).server_name(),
-                    num_references: references.len(),
-                },
-                ctx
-            );
-        }
 
         // Get workspace root for relative path display from the LSP server
         let workspace_root = self
@@ -950,7 +927,7 @@ impl LocalCodeEditorView {
             // If the LSP is not registered, try to start it via PersistedWorkspace.
             #[cfg(feature = "local_fs")]
             {
-                use crate::ai::persisted_workspace::LspTask;
+                use crate::workspace::persisted_workspace::LspTask;
                 PersistedWorkspace::handle(ctx).update(ctx, |workspace, ctx| {
                     workspace.execute_lsp_task(LspTask::Spawn { file_path: path }, ctx);
                 });
@@ -1192,8 +1169,7 @@ impl LocalCodeEditorView {
     ///
     /// Mirrors VS Code's `files.autoSave: afterDelay`: the file is written
     /// *without* running the language-server formatter, so formatting never
-    /// disrupts the user mid-edit. New/untitled files (no `file_id`) and
-    /// disconnected remotes are intentionally skipped.
+    /// disrupts the user mid-edit. Untitled files are skipped.
     fn auto_save_after_delay(&mut self, ctx: &mut ViewContext<Self>) {
         if !*CodeSettings::as_ref(ctx).auto_save {
             return;
@@ -1206,7 +1182,7 @@ impl LocalCodeEditorView {
             return;
         }
 
-        if self.is_remote_disconnected(ctx) || !self.has_unsaved_changes(ctx) {
+        if !self.has_unsaved_changes(ctx) {
             return;
         }
 
@@ -1226,8 +1202,7 @@ impl LocalCodeEditorView {
     /// Mirrors VS Code's `files.autoSave: onFocusChange` / `onWindowChange`,
     /// which *do* honor format-on-save. We route through [`Self::save_local`] so
     /// the existing format-on-save setting is respected. `NoFileId` (untitled
-    /// files) and `RemoteDisconnected` are expected no-ops; real save failures
-    /// still surface via `FailedToSave` events.
+    /// files) is expected; save failures surface via `FailedToSave` events.
     fn auto_save_on_focus_change(&mut self, ctx: &mut ViewContext<Self>) {
         // Never auto-save a pending accept/reject diff (see
         // `auto_save_after_delay`); editable code-review diffs use `diff_type =
@@ -1240,9 +1215,7 @@ impl LocalCodeEditorView {
         }
 
         // Mark this as an auto-save so the "File saved." toast is suppressed.
-        // If the save never starts (untitled file with no `file_id`, or a
-        // disconnected remote), clear the marker so the next manual save still
-        // shows its "File saved." toast.
+        // Clear the marker if no save starts so the next manual save shows its toast.
         self.auto_save_in_flight = true;
         if self.save_local(ctx).is_err() {
             self.auto_save_in_flight = false;
@@ -1308,13 +1281,9 @@ impl LocalCodeEditorView {
         GlobalBufferModel::as_ref(ctx).buffer_loaded(file_id)
     }
 
-    /// Construct a new editor view with a shared buffer backed by the given location.
-    ///
-    /// For local files, sets the language from the file path and wires up LSP.
-    /// For remote files, sets the language from the extension and skips
-    /// local-only wiring (LSP, footer).
+    /// Construct a shared editor for a local file, with syntax highlighting and LSP.
     pub fn new_with_global_buffer<T>(
-        location: BufferFileLocation,
+        path: PathBuf,
         editor_constructor: T,
         enable_diff_nav_by_default: bool,
         display_mode: Option<DisplayMode>,
@@ -1324,35 +1293,23 @@ impl LocalCodeEditorView {
         T: FnOnce(BufferState, &mut ViewContext<Self>) -> ViewHandle<CodeEditorView>,
     {
         let buffer_state = GlobalBufferModel::handle(ctx)
-            .update(ctx, |model, ctx| model.open(location.clone(), ctx));
+            .update(ctx, |model, ctx| model.open(path.clone(), ctx));
         let file_id = buffer_state.file_id;
         let editor = editor_constructor(buffer_state, ctx);
 
-        match &location {
-            BufferFileLocation::Local(path) => {
-                editor.update(ctx, |editor, ctx| {
-                    editor.set_language_with_local_path(path, ctx);
-                    editor.model.update(ctx, |model, ctx| {
-                        model.rebuild_layout_with_syntax_highlighting(ctx)
-                    });
-                });
-            }
-            BufferFileLocation::Remote(remote_path) => {
-                editor.update(ctx, |editor, ctx| {
-                    editor.set_language_with_path(&remote_path.path, ctx);
-                    editor.model.update(ctx, |model, ctx| {
-                        model.rebuild_layout_with_syntax_highlighting(ctx)
-                    });
-                });
-            }
-        }
+        editor.update(ctx, |editor, ctx| {
+            editor.set_language_with_local_path(&path, ctx);
+            editor
+                .model
+                .update(ctx, |model, ctx| model.rebuild_layout_with_syntax_highlighting(ctx));
+        });
 
         let mut local_editor =
             Self::new(editor, None, enable_diff_nav_by_default, display_mode, ctx);
 
         local_editor.metadata = Some(LoadedFileMetadata {
             id: file_id,
-            location,
+            location: BufferFileLocation::Local(path),
         });
 
         Self::subscribe_to_global_buffer_events(file_id, ctx);
@@ -1392,7 +1349,13 @@ impl LocalCodeEditorView {
     /// If the button is hidden to begin with, this is a no-op.
     pub fn update_diff_hunk_gutter_buttons(&self, ctx: &mut ViewContext<Self>) {
         let has_unsaved_changes = self.has_unsaved_changes(ctx);
-        let enabled = !has_unsaved_changes;
+        let target = self.selection_as_context_tooltip.as_ref().and_then(|tooltip| {
+            ctx.windows().active_window().and_then(|window_id| {
+                (tooltip.terminal_target_fn)(window_id, ctx)
+            })
+        });
+        let enabled = !has_unsaved_changes
+            && target.is_some_and(|terminal| terminal.as_ref(ctx).is_long_running());
         self.editor.update(ctx, |code_editor, ctx| {
             code_editor.set_add_diff_hunk_as_context_button(enabled, ctx);
         });
@@ -1438,12 +1401,14 @@ impl LocalCodeEditorView {
     /// Adds the LSP status footer to the editor view.
     pub(crate) fn add_footer(&mut self, ctx: &mut ViewContext<Self>) {
         if let Some(path) = self.file_path() {
+            #[cfg(feature = "local_fs")]
+            if crate::user_config::is_tab_config_toml(path) {
+                return;
+            }
+
             let footer =
                 ctx.add_typed_action_view(|ctx| CodeFooterView::new(path.to_path_buf(), ctx));
             ctx.subscribe_to_view(&footer, |_, _, event, ctx| match event {
-                CodeFooterViewEvent::RunTabConfigSkill { path } => {
-                    ctx.emit(LocalCodeEditorEvent::RunTabConfigSkill { path: path.clone() });
-                }
                 CodeFooterViewEvent::EnableLSP { path, .. } => {
                     Self::enable_lsp_for_path(path, ctx);
                 }
@@ -1520,7 +1485,7 @@ impl LocalCodeEditorView {
     /// 5. Starting the LSP server via PersistedWorkspace
     #[cfg(feature = "local_fs")]
     fn enable_lsp_for_path(path: &Path, ctx: &mut ViewContext<Self>) {
-        use crate::ai::persisted_workspace::LspTask;
+        use crate::workspace::persisted_workspace::LspTask;
 
         // Get the language ID from the file path
         let Some(language_id) = LanguageId::from_path(path) else {
@@ -1565,7 +1530,7 @@ impl LocalCodeEditorView {
     /// and emits events that are handled by handle_persisted_workspace_event.
     #[cfg(feature = "local_fs")]
     fn install_and_enable_lsp_for_path(path: &Path, ctx: &mut ViewContext<Self>) {
-        use crate::ai::persisted_workspace::LspTask;
+        use crate::workspace::persisted_workspace::LspTask;
 
         let Some(language_id) = LanguageId::from_path(path) else {
             log::warn!("Install and enable lsp for path should only work for supported file paths");
@@ -1660,7 +1625,6 @@ impl LocalCodeEditorView {
                     // For a reopen (discard), base_content_version is already
                     // set from the initial load. Accept the new version and
                     // clear any conflict flag.
-                    me.has_remote_conflict = false;
                     if me.base_content_version.is_some() {
                         me.base_content_version = Some(*content_version);
                         ctx.notify();
@@ -1697,7 +1661,6 @@ impl LocalCodeEditorView {
                     // auto-saves, show it for manual (cmd-s) saves.
                     let auto_saved = std::mem::take(&mut me.auto_save_in_flight);
                     me.base_content_version = Some(*content_version);
-                    me.has_remote_conflict = false;
                     ctx.emit(LocalCodeEditorEvent::FileSaved { auto_saved });
                 }
                 GlobalBufferModelEvent::FailedToSave { error, .. } => {
@@ -1707,13 +1670,6 @@ impl LocalCodeEditorView {
                         error: error.clone(),
                     });
                 }
-                GlobalBufferModelEvent::RemoteBufferConflict { .. } => {
-                    me.has_remote_conflict = true;
-                    ctx.notify();
-                }
-                GlobalBufferModelEvent::ServerLocalBufferUpdated { .. } => {
-                    // Not relevant for local code editors.
-                }
             }
 
             me.update_diff_hunk_gutter_buttons(ctx);
@@ -1721,11 +1677,6 @@ impl LocalCodeEditorView {
     }
 
     pub fn has_version_conflicts(&self, app: &AppContext) -> bool {
-        // Remote buffers use SyncClock for conflict detection.
-        // The flag is set by the RemoteBufferConflict event handler.
-        if matches!(self.file_location(), Some(BufferFileLocation::Remote(_))) {
-            return self.has_remote_conflict;
-        }
         let Some(file_id) = self.file_id() else {
             return false;
         };
@@ -1733,34 +1684,15 @@ impl LocalCodeEditorView {
             && self.base_content_version != GlobalBufferModel::as_ref(app).base_version(file_id)
     }
 
-    /// Returns `true` when this editor is backed by a remote file whose
-    /// host no longer has any connected session. Derived on-the-fly from
-    /// `RemoteServerManager` so it is always in sync with actual
-    /// connection state.
-    pub fn is_remote_disconnected(&self, app: &AppContext) -> bool {
-        let Some(BufferFileLocation::Remote(remote_path)) = self.file_location() else {
-            return false;
-        };
-        RemoteServerManager::as_ref(app)
-            .client_for_host(&remote_path.host_id)
-            .is_none()
+    /// Returns whether this editor has a backing file for auto-save.
+    pub fn can_auto_save(&self, _app: &AppContext) -> bool {
+        self.file_id().is_some()
     }
 
-    /// Whether auto-save can actually persist this editor's changes: it needs
-    /// a backing file and, for remote files, a still-connected host. Untitled
-    /// buffers (no `file_id`) and disconnected remotes return `false`.
-    pub fn can_auto_save(&self, app: &AppContext) -> bool {
-        self.file_id().is_some() && !self.is_remote_disconnected(app)
-    }
-
-    /// Save the file to the local file system (or remotely via the remote server).
+    /// Save the file to the local file system.
     /// This will only return an error immediately if there is a failure in the sync part of the call.
     /// Other errors could be returned asynchronously via the FileModelEvent::FailedToSave event.
     pub fn save_local(&mut self, ctx: &mut ViewContext<Self>) -> Result<(), ImmediateSaveError> {
-        if self.is_remote_disconnected(ctx) {
-            return Err(ImmediateSaveError::RemoteDisconnected);
-        }
-
         let Some(file_id) = self.file_id() else {
             return Err(ImmediateSaveError::NoFileId);
         };
@@ -1879,13 +1811,12 @@ impl LocalCodeEditorView {
         self.metadata.as_ref().map(|m| m.id)
     }
 
-    /// Returns the unified file location (local or remote).
+    /// Returns the file location if the editor has a backing file.
     pub fn file_location(&self) -> Option<&BufferFileLocation> {
         self.metadata.as_ref().map(|m| &m.location)
     }
 
-    /// Returns the local path if this editor is backed by a local file.
-    /// Returns `None` for remote files. Used by LSP and other local-only code paths.
+    /// Returns the backing file's path for local tools such as LSP.
     pub fn file_path(&self) -> Option<&Path> {
         self.file_location().and_then(|loc| loc.to_local_path())
     }
@@ -2064,7 +1995,6 @@ impl LocalCodeEditorView {
         };
 
         let mut line_range: Option<Range<LineCount>> = None;
-        let mut selected_text: Option<String> = None;
         self.editor.update(ctx, |editor, ctx| {
             // If we have a vim visual selection, update the editor model to use that as a selection range
             let has_vim_visual = matches!(editor.vim_mode(ctx), Some(VimMode::Visual(_)));
@@ -2077,7 +2007,6 @@ impl LocalCodeEditorView {
             if let Some((start, end)) = editor.selected_lines(ctx) {
                 // selected_lines() returns 1-indexed row numbers.
                 line_range = Some(LineCount::from(start as usize)..LineCount::from(end as usize));
-                selected_text = Some(editor.selected_text(ctx).unwrap_or_default());
             }
 
             // Enter normal mode
@@ -2086,14 +2015,13 @@ impl LocalCodeEditorView {
             }
         });
 
-        let (Some(line_range), Some(selected_text)) = (line_range, selected_text) else {
+        let Some(line_range) = line_range else {
             return;
         };
 
         ctx.emit(LocalCodeEditorEvent::SelectionAddedAsContext {
             relative_file_path,
             line_range,
-            selected_text,
         });
         self.editor.update(ctx, |editor, ctx| {
             editor.clear_selection(ctx);
@@ -2153,26 +2081,9 @@ impl LocalCodeEditorView {
             return;
         };
 
-        let server_type_name = self
-            .lsp_server
-            .as_ref()
-            .map(|s| s.as_ref(ctx).server_name());
-
         self.call_goto_definition(
             lsp_position,
             move |_me, result, ctx| {
-                let had_result = matches!(&result, Ok(locations) if !locations.is_empty());
-
-                if let Some(server_type) = server_type_name {
-                    send_telemetry_from_ctx!(
-                        LspTelemetryEvent::GotoDefinition {
-                            server_type,
-                            had_result,
-                        },
-                        ctx
-                    );
-                }
-
                 match result {
                     Ok(locations) => {
                         if let Some(location) = locations.first() {
@@ -2247,6 +2158,7 @@ impl View for LocalCodeEditorView {
     }
 
     fn on_focus(&mut self, focus_ctx: &warpui::FocusContext, ctx: &mut ViewContext<Self>) {
+        self.update_diff_hunk_gutter_buttons(ctx);
         if focus_ctx.is_self_focused() {
             self.editor.update(ctx, |editor, ctx| editor.focus(ctx));
         }
@@ -2264,45 +2176,28 @@ impl View for LocalCodeEditorView {
     }
 
     fn render(&self, app: &AppContext) -> Box<dyn warpui::Element> {
-        // Rendering the remote disconnection banner or version conflict banner.
-        // Only show the disconnection banner if the file was successfully loaded;
-        // if it never loaded, the error/loading state handles that.
-        let base: Box<dyn Element> =
-            if self.base_content_version.is_some() && self.is_remote_disconnected(app) {
-                let appearance = Appearance::as_ref(app);
-                let banner = render_remote_disconnected_banner(appearance);
-                let mut col = Flex::column().with_child(banner);
-
-                let editor_view = ChildView::new(&self.editor).finish();
-                if self.editor.as_ref(app).needs_vertical_constraint() {
-                    col.add_child(Shrinkable::new(1., editor_view).finish());
-                } else {
-                    col.add_child(editor_view);
-                }
-                col.finish()
-            } else if self.has_version_conflicts(app) {
-                let appearance = Appearance::as_ref(app);
-                let banner = render_unsaved_changes_banner(
-                    appearance,
-                    self.conflict_banner_mouse_states
-                        .discard_mouse_state
-                        .clone(),
-                    self.conflict_banner_mouse_states
-                        .overwrite_mouse_state
-                        .clone(),
-                );
-                let mut col = Flex::column().with_child(banner);
-
-                let editor_view = ChildView::new(&self.editor).finish();
-                if self.editor.as_ref(app).needs_vertical_constraint() {
-                    col.add_child(Shrinkable::new(1., editor_view).finish());
-                } else {
-                    col.add_child(editor_view);
-                }
-                col.finish()
+        let base: Box<dyn Element> = if self.has_version_conflicts(app) {
+            let appearance = Appearance::as_ref(app);
+            let banner = render_unsaved_changes_banner(
+                appearance,
+                self.conflict_banner_mouse_states
+                    .discard_mouse_state
+                    .clone(),
+                self.conflict_banner_mouse_states
+                    .overwrite_mouse_state
+                    .clone(),
+            );
+            let mut col = Flex::column().with_child(banner);
+            let editor_view = ChildView::new(&self.editor).finish();
+            if self.editor.as_ref(app).needs_vertical_constraint() {
+                col.add_child(Shrinkable::new(1., editor_view).finish());
             } else {
-                ChildView::new(&self.editor).finish()
-            };
+                col.add_child(editor_view);
+            }
+            col.finish()
+        } else {
+            ChildView::new(&self.editor).finish()
+        };
 
         let base_with_handler =
             Hoverable::new(self.context_menu_state.mouse_state.clone(), |_| base)
@@ -2319,11 +2214,7 @@ impl View for LocalCodeEditorView {
         if self.selection_as_context_tooltip.is_some() {
             // When a single terminal exists in the window and the user has made a selection (but isn't currently selecting),
             // we render a tooltip that allows them to add the selected text to the terminal context.
-            let is_ai_enabled = AISettings::as_ref(app).is_any_ai_enabled(app);
-            if is_ai_enabled
-                && FeatureFlag::SelectionAsContext.is_enabled()
-                && !editor.is_selecting()
-            {
+            if !editor.is_selecting() {
                 let tooltip = self.render_selection_tooltip(app);
                 if let Some(tooltip) = tooltip {
                     stack.add_positioned_child(tooltip, editor.selection_position_anchor(app))
@@ -2415,17 +2306,6 @@ impl TypedActionView for LocalCodeEditorView {
                 if let Some(path) = self.file_path().map(Path::to_path_buf) {
                     self.base_content_version = Some(self.editor().as_ref(ctx).version(ctx));
                     ctx.emit(LocalCodeEditorEvent::DiscardUnsavedChanges { path });
-                } else if self.has_remote_conflict {
-                    // Remote file: re-open the buffer from the server to get
-                    // the latest on-disk content. The BufferLoaded event will
-                    // clear has_remote_conflict and update base_content_version.
-                    // If the re-open fails, has_remote_conflict stays true and
-                    // the banner remains visible so the user can retry.
-                    if let Some(file_id) = self.file_id() {
-                        GlobalBufferModel::handle(ctx).update(ctx, |model, ctx| {
-                            model.reopen_remote_buffer(file_id, ctx);
-                        });
-                    }
                 }
             }
             LocalCodeEditorAction::NavigateToTarget(location) => {
@@ -2571,51 +2451,6 @@ pub fn render_unsaved_changes_banner(
     .with_padding_left(12.)
     .with_padding_right(12.)
     .finish()
-}
-
-/// Renders a banner indicating that the remote SSH session is disconnected
-/// and save / auto-reload are unavailable.
-pub fn render_remote_disconnected_banner(appearance: &Appearance) -> Box<dyn Element> {
-    let row = Flex::row()
-        .with_cross_axis_alignment(CrossAxisAlignment::Center)
-        .with_main_axis_size(MainAxisSize::Max)
-        .with_child(
-            Container::new(
-                ConstrainedBox::new(
-                    Icon::Warning
-                        .to_warpui_icon(appearance.theme().active_ui_text_color())
-                        .finish(),
-                )
-                .with_height(16.)
-                .with_width(16.)
-                .finish(),
-            )
-            .with_margin_right(8.)
-            .finish(),
-        )
-        .with_child(
-            Shrinkable::new(
-                1.,
-                Text::new(
-                    "Remote host disconnected. You will not be able to see updates and save changes.",
-                    appearance.ui_font_family(),
-                    appearance.ui_font_size(),
-                )
-                .with_color(appearance.theme().active_ui_text_color().into())
-                .soft_wrap(true)
-                .finish(),
-            )
-            .finish(),
-        )
-        .finish();
-
-    Container::new(row)
-        .with_background(appearance.theme().text_selection_as_context_color())
-        .with_padding_top(8.)
-        .with_padding_bottom(8.)
-        .with_padding_left(12.)
-        .with_padding_right(12.)
-        .finish()
 }
 
 /// Renders a small yellow circle with tooltip indicating unsaved changes

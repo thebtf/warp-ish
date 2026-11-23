@@ -25,9 +25,7 @@ use warpui::{
 
 use super::{tab_config_step, welcome_banner};
 use crate::appearance::Appearance;
-use crate::settings::AISettings;
 use crate::tab_configs::session_config::{SessionConfigSelection, SessionType, is_git_repo};
-use crate::tab_configs::session_config_rendering;
 use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::{
     ActionButton, ActionButtonTheme, ButtonSize, KeystrokeSource,
@@ -93,12 +91,12 @@ impl ActionButtonTheme for HoaWelcomeModalCloseButtonTheme {
     }
 }
 
-/// The 4 sequential steps in the HOA onboarding flow.
+/// The sequential steps in the HOA onboarding flow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HoaOnboardingStep {
     WelcomeBanner,
     VerticalTabsCallout,
-    AgentInboxCallout,
+
     TabConfig,
 }
 
@@ -107,13 +105,12 @@ impl HoaOnboardingStep {
         match self {
             HoaOnboardingStep::WelcomeBanner => 0,
             HoaOnboardingStep::VerticalTabsCallout => 0,
-            HoaOnboardingStep::AgentInboxCallout => 1,
-            HoaOnboardingStep::TabConfig => 2,
+            HoaOnboardingStep::TabConfig => 1,
         }
     }
 
     fn total_dots() -> usize {
-        3
+        2
     }
 }
 
@@ -132,7 +129,7 @@ pub enum HoaOnboardingAction {
     EnterPressed,
     AdvanceFromWelcome,
     AdvanceFromVerticalTabs,
-    AdvanceFromInbox,
+
     ToggleHorizontalTabs,
     SelectSessionType(usize),
     OpenDirectoryPicker,
@@ -169,7 +166,6 @@ pub struct HoaOnboardingFlow {
     dismiss_vtabs_button: ViewHandle<ActionButton>,
 
     // Step 3 state
-    next_inbox_button: ViewHandle<ActionButton>,
 
     // Step 4 state
     finish_button: ViewHandle<ActionButton>,
@@ -189,8 +185,7 @@ pub struct HoaOnboardingFlow {
 
 impl HoaOnboardingFlow {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {
-        let show_oz = AISettings::as_ref(ctx).is_any_ai_enabled(ctx);
-        let session_types = session_config_rendering::visible_session_types(show_oz);
+        let session_types = vec![SessionType::Terminal];
         let pill_mouse_states: Vec<_> = session_types
             .iter()
             .map(|_| MouseStateHandle::default())
@@ -228,12 +223,6 @@ impl HoaOnboardingFlow {
                 .on_click(|ctx| ctx.dispatch_typed_action(HoaOnboardingAction::Dismiss))
         });
 
-        let next_inbox_button = ctx.add_view(|ctx| {
-            ActionButton::new("Next", HoaPrimaryButtonTheme)
-                .with_keybinding(KeystrokeSource::Fixed(enter.clone()), ctx)
-                .on_click(|ctx| ctx.dispatch_typed_action(HoaOnboardingAction::AdvanceFromInbox))
-        });
-
         let finish_button = ctx.add_view(|ctx| {
             ActionButton::new("Finish", HoaPrimaryButtonTheme)
                 .with_keybinding(KeystrokeSource::Fixed(enter), ctx)
@@ -248,7 +237,6 @@ impl HoaOnboardingFlow {
             horizontal_tabs_checkbox_mouse_state: MouseStateHandle::default(),
             next_vtabs_button,
             dismiss_vtabs_button,
-            next_inbox_button,
             finish_button,
             session_types,
             selected_session_type_index: 0,
@@ -282,8 +270,7 @@ impl HoaOnboardingFlow {
 
         self.step = match self.step {
             HoaOnboardingStep::WelcomeBanner => HoaOnboardingStep::VerticalTabsCallout,
-            HoaOnboardingStep::VerticalTabsCallout => HoaOnboardingStep::AgentInboxCallout,
-            HoaOnboardingStep::AgentInboxCallout => HoaOnboardingStep::TabConfig,
+            HoaOnboardingStep::VerticalTabsCallout => HoaOnboardingStep::TabConfig,
             HoaOnboardingStep::TabConfig => {
                 self.finish(ctx);
                 return;
@@ -453,65 +440,6 @@ impl HoaOnboardingFlow {
         )
     }
 
-    fn render_inbox_callout(&self, appearance: &Appearance) -> Box<dyn Element> {
-        let title = Text::new(
-            "Meet your new agent inbox",
-            appearance.ui_font_family(),
-            16.,
-        )
-        .with_color(callout_title_color(appearance))
-        .with_style(Properties::default().weight(Weight::Bold))
-        .finish();
-
-        // Build the description with an inline "Learn more" hyperlink.
-        let learn_more_fragment = FormattedTextFragment {
-            text: "Learn more".into(),
-            styles: FormattedTextStyles {
-                underline: true,
-                hyperlink: Some(Hyperlink::Url(
-                    "https://docs.warp.dev/agents/capabilities/agent-notifications".into(),
-                )),
-                ..Default::default()
-            },
-        };
-
-        let formatted = FormattedText::new([FormattedTextLine::Line(vec![
-            FormattedTextFragment::plain_text(
-                "Warp pipes through notifications from any CLI coding agent into a unified notification center that works across all coding agents and harnesses. ",
-            ),
-            learn_more_fragment,
-        ])]);
-
-        let description = FormattedTextElement::new(
-            formatted,
-            14.,
-            appearance.ui_font_family(),
-            appearance.ui_font_family(),
-            callout_body_color(appearance),
-            Default::default(),
-        )
-        .with_line_height_ratio(1.2)
-        .register_default_click_handlers(|link, _ctx, app| {
-            app.open_url(&link.url);
-        })
-        .finish();
-
-        let body_content = Flex::column()
-            .with_cross_axis_alignment(CrossAxisAlignment::Start)
-            .with_child(title)
-            .with_child(Container::new(description).with_margin_top(8.).finish())
-            .finish();
-
-        let body = Container::new(body_content)
-            .with_horizontal_padding(16.)
-            .with_padding_top(16.)
-            .with_padding_bottom(12.)
-            .finish();
-        let footer = self.render_callout_footer(&self.next_inbox_button, appearance);
-
-        Flex::column().with_child(body).with_child(footer).finish()
-    }
-
     fn render_tab_config_step(&self, appearance: &Appearance) -> Box<dyn Element> {
         let form = tab_config_step::render_tab_config_form(
             tab_config_step::TabConfigFormState {
@@ -608,18 +536,7 @@ impl View for HoaOnboardingFlow {
                     appearance,
                 )
             }
-            HoaOnboardingStep::AgentInboxCallout => {
-                let content = self.render_inbox_callout(appearance);
-                render_callout_bubble(
-                    content,
-                    &CalloutBubbleConfig {
-                        width: CALLOUT_WIDTH,
-                        arrow_direction: CalloutArrowDirection::Up,
-                        arrow_position: CalloutArrowPosition::End(24.),
-                    },
-                    appearance,
-                )
-            }
+
             HoaOnboardingStep::TabConfig => {
                 let tab_content = self.render_tab_config_step(appearance);
                 let use_vertical = *TabSettings::as_ref(app).use_vertical_tabs;
@@ -654,8 +571,7 @@ impl TypedActionView for HoaOnboardingFlow {
                 self.advance(ctx);
             }
             HoaOnboardingAction::AdvanceFromWelcome
-            | HoaOnboardingAction::AdvanceFromVerticalTabs
-            | HoaOnboardingAction::AdvanceFromInbox => {
+            | HoaOnboardingAction::AdvanceFromVerticalTabs => {
                 self.advance(ctx);
             }
             HoaOnboardingAction::ToggleHorizontalTabs => {

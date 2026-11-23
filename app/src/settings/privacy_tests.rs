@@ -1,23 +1,53 @@
 use settings::schema::SettingSchemaEntry;
-use settings::{Setting, SettingSurfaces, SettingsMode};
-
-use super::{IsCloudConversationStorageEnabled, IsCrashReportingEnabled, IsTelemetryEnabled};
 
 #[test]
-fn privacy_settings_apply_to_gui_and_tui() {
-    for storage_key in [
-        IsTelemetryEnabled::toml_key(),
-        IsCrashReportingEnabled::toml_key(),
-        IsCloudConversationStorageEnabled::toml_key(),
-    ] {
-        let entry = inventory::iter::<SettingSchemaEntry>
+fn retired_cloud_conversation_storage_is_not_registered() {
+    assert!(
+        !inventory::iter::<SettingSchemaEntry>
             .into_iter()
-            .find(|entry| entry.storage_key == storage_key)
-            .unwrap_or_else(|| panic!("missing schema entry for {storage_key}"));
-        let surfaces = (entry.surfaces_fn)();
+            .any(|entry| matches!(
+                entry.storage_key,
+                "cloud_conversation_storage_enabled" | "CloudConversationStorageEnabled"
+            ))
+    );
+}
 
-        assert_eq!(surfaces, SettingSurfaces::ALL, "{storage_key}");
-        assert!(surfaces.includes(SettingsMode::Gui), "{storage_key}");
-        assert!(surfaces.includes(SettingsMode::Tui), "{storage_key}");
-    }
+#[test]
+fn crash_reporting_is_not_a_public_setting() {
+    assert!(
+        !inventory::iter::<SettingSchemaEntry>
+            .into_iter()
+            .any(|entry| {
+                entry.hierarchy == Some("privacy") && entry.storage_key == "crash_reporting_enabled"
+            })
+    );
+}
+
+#[test]
+fn analytics_consent_is_not_a_registered_setting() {
+    assert!(
+        !inventory::iter::<SettingSchemaEntry>
+            .into_iter()
+            .any(|entry| {
+                entry.hierarchy == Some("privacy") && entry.storage_key == "telemetry_enabled"
+            })
+    );
+    assert!(
+        !inventory::iter::<SettingSchemaEntry>
+            .into_iter()
+            .any(|entry| {
+                matches!(
+                    entry.storage_key,
+                    "telemetry_banner_dismissed" | "TelemetryBannerDismissed"
+                )
+            })
+    );
+    assert!(
+        inventory::iter::<SettingSchemaEntry>
+            .into_iter()
+            .any(|entry| {
+                entry.hierarchy == Some("privacy")
+                    && entry.storage_key == "custom_secret_regex_list"
+            })
+    );
 }

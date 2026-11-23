@@ -46,7 +46,7 @@ fn test_detect_possible_local_git_repo_not_a_git_repo() {
         let regular_dir = dirs.tests().join("regular_dir");
 
         App::test((), |mut app| async move {
-            let _watcher = app.add_model(DirectoryWatcher::new);
+            let _watcher = app.add_singleton_model(DirectoryWatcher::new);
             let repo_handle = app.add_model(|_| DetectedRepositories::default());
 
             repo_handle.update(&mut app, |watcher, ctx| {

@@ -2,7 +2,7 @@ use ::local_control::protocol::TargetSelector;
 use ::local_control::{ErrorCode, InstanceId};
 use warpui::App;
 
-use super::create_tab;
+use super::{create_tab, tab_create_action};
 use crate::local_control::LocalControlBridge;
 use crate::workspace::view::tests::{initialize_app, mock_workspace};
 
@@ -61,4 +61,11 @@ fn tab_create_rejects_shell_parameter() {
 
         assert_eq!(err.code, ErrorCode::InvalidParams);
     });
+}
+
+#[test]
+fn tab_create_rejects_builtin_agent_tab_type() {
+    let error = tab_create_action(&serde_json::json!({ "tab_type": "agent" }))
+        .expect_err("built-in agent tabs are unsupported");
+    assert_eq!(error.code, ErrorCode::UnsupportedAction);
 }

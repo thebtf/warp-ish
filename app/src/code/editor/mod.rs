@@ -3,6 +3,7 @@
 pub(crate) mod comment_editor;
 mod comments;
 pub(super) mod diff;
+mod edit;
 mod element;
 pub mod embedded_comment;
 pub mod find;
@@ -17,5 +18,6 @@ pub mod view;
 pub use comment_editor::{CommentEditor, CommentEditorEvent};
 pub use comments::{EditorCommentsModel, EditorReviewComment};
 pub(crate) use diff::{add_color, compute_unified_diff, remove_color};
+pub use edit::{DiffDelta, DiffType};
 pub use element::GutterHoverTarget;
 pub use nav_bar::NavBarBehavior;

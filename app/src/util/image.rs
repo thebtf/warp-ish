@@ -19,6 +19,27 @@ pub const MAX_IMAGE_SIZE_BYTES: usize = 3750 * 1000;
 /// arbitrarily large files into memory.
 pub const MAX_IMAGE_SIZE_BYTES_FOR_CLI_AGENT: usize = 500 * 1_000_000;
 
+/// Read at most the CLI image limit plus one sentinel byte, even if a file grows
+/// after its metadata was checked. Callers reject a result larger than `limit`.
+pub(crate) async fn read_cli_image_bytes(
+    reader: impl futures::io::AsyncRead + Unpin,
+    limit: usize,
+) -> std::io::Result<Vec<u8>> {
+    use futures::io::AsyncReadExt as _;
+    let bound = u64::try_from(limit)
+        .ok()
+        .and_then(|value| value.checked_add(1))
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "CLI image read limit is too large",
+            )
+        })?;
+    let mut bytes = Vec::new();
+    reader.take(bound).read_to_end(&mut bytes).await?;
+    Ok(bytes)
+}
+
 /// How many leading bytes of a file are enough for `infer_mime_type` to
 /// match a magic-number signature. Callers that already have the full bytes
 /// in memory should pass only the first `MIME_SNIFF_BYTES` to avoid handing

@@ -1,7 +1,5 @@
-use std::cmp::Ordering;
 use std::path::PathBuf;
 
-use ai::agent::action::ReviewCommentThreadItem;
 use chrono::{DateTime, Local};
 
 use super::comment::{ImportedCommentDetails, LineDiffContent};
@@ -54,28 +52,6 @@ impl PendingImportedReviewComment {
     }
 }
 
-impl ReviewCommentThreadItem for PendingImportedReviewComment {
-    fn comment_id(&self) -> &str {
-        self.github_comment_id()
-    }
-
-    fn parent_comment_id(&self) -> Option<&str> {
-        self.github_parent_comment_id()
-    }
-
-    fn author(&self) -> &str {
-        self.author()
-    }
-
-    fn body(&self) -> &str {
-        &self.body
-    }
-
-    fn compare_last_modified(&self, other: &Self) -> Ordering {
-        self.last_update_time.cmp(&other.last_update_time)
-    }
-}
-
 /// Where a pending imported review comment applies.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PendingImportedReviewCommentTarget {
@@ -95,18 +71,4 @@ pub(crate) enum PendingImportedReviewCommentTarget {
     },
     /// A comment that applies to the entire diffset / PR.
     General,
-}
-
-impl PendingImportedReviewCommentTarget {
-    pub(crate) fn file_path(&self) -> Option<&PathBuf> {
-        match self {
-            PendingImportedReviewCommentTarget::Line {
-                relative_file_path, ..
-            } => Some(relative_file_path),
-            PendingImportedReviewCommentTarget::File { relative_file_path } => {
-                Some(relative_file_path)
-            }
-            PendingImportedReviewCommentTarget::General => None,
-        }
-    }
 }

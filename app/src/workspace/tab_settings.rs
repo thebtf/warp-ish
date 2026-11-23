@@ -256,9 +256,24 @@ pub enum HeaderToolbarChipSelection {
     #[default]
     Default,
     Custom {
+        #[serde(deserialize_with = "deserialize_header_toolbar_items")]
         left: Vec<super::header_toolbar_item::HeaderToolbarItemKind>,
+        #[serde(deserialize_with = "deserialize_header_toolbar_items")]
         right: Vec<super::header_toolbar_item::HeaderToolbarItemKind>,
     },
+}
+
+fn deserialize_header_toolbar_items<'de, D>(
+    deserializer: D,
+) -> Result<Vec<super::header_toolbar_item::HeaderToolbarItemKind>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let values: Vec<serde_json::Value> = serde::Deserialize::deserialize(deserializer)?;
+    Ok(values
+        .into_iter()
+        .filter_map(|value| serde_json::from_value(value).ok())
+        .collect())
 }
 
 impl HeaderToolbarChipSelection {
@@ -526,16 +541,6 @@ define_settings_group!(TabSettings, settings: [
         private: false,
         toml_path: "appearance.vertical_tabs.hide_title_bar_search_bar",
         description: "When using the vertical tab layout, hide the search bar in the title bar. Search stays available via the command palette and keyboard shortcuts.",
-    },
-    use_latest_user_prompt_as_conversation_title_in_tab_names: UseLatestUserPromptAsConversationTitleInTabNames {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        surface: settings::SettingSurfaces::GUI,
-        private: false,
-        toml_path: "appearance.vertical_tabs.use_latest_prompt_as_title",
-        description: "Whether vertical tab names for agent conversations use the latest user prompt.",
     },
     vertical_tabs_display_granularity: VerticalTabsDisplayGranularity,
     vertical_tabs_tab_item_mode: VerticalTabsTabItemMode,

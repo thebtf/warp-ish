@@ -405,17 +405,9 @@ pub enum SurfaceCommand {
     #[command(subcommand)]
     Keybindings(SurfaceOpenCommand),
 
-    /// Open or toggle Warp Drive.
-    #[command(subcommand)]
-    WarpDrive(SurfaceOpenToggleCommand),
-
     /// Toggle the resource center.
     #[command(subcommand)]
     ResourceCenter(SurfaceToggleCommand),
-
-    /// Toggle the AI assistant.
-    #[command(subcommand)]
-    AiAssistant(SurfaceToggleCommand),
 
     /// Open or toggle code review.
     #[command(subcommand)]
@@ -429,10 +421,6 @@ pub enum SurfaceCommand {
     #[command(subcommand)]
     GlobalSearch(SurfaceOpenCommand),
 
-    /// Open the conversation list.
-    #[command(subcommand)]
-    ConversationList(SurfaceOpenCommand),
-
     /// Toggle the left panel.
     #[command(subcommand)]
     LeftPanel(SurfaceToggleCommand),
@@ -445,9 +433,6 @@ pub enum SurfaceCommand {
     #[command(subcommand)]
     VerticalTabs(SurfaceOpenToggleCommand),
 
-    /// Open agent management.
-    #[command(subcommand)]
-    AgentManagement(SurfaceOpenCommand),
 }
 
 #[derive(Debug, Clone, Subcommand)]

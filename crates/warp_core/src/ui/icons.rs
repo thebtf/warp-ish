@@ -76,7 +76,6 @@ pub enum Icon {
     LinkExternal,
     CheckCircleBroken,
     Link,
-    QrCode,
     Refresh,
     RefreshCcw,
     RefreshCw04,
@@ -158,7 +157,6 @@ pub enum Icon {
     CornerRight,
     DashedRectangle,
     CornersOfBox,
-    Microphone,
     Stop,
     StopFilled,
     MinusCircle,
@@ -299,8 +297,7 @@ pub enum Icon {
     /// the **call site's responsibility** — this variant carries the shape
     /// only. Most surfaces tint it with the surrounding theme color (light
     /// theme: dark glyph; dark theme: light glyph). Kept distinct from
-    /// `Warp` so agent surfaces and non-agent Warp UI (e.g.
-    /// `QueryFilter::Drive`) can evolve independently.
+    /// `Warp` so agent and general product icons can evolve independently.
     Agent,
     Conversation,
     Prompt,
@@ -383,7 +380,6 @@ impl From<Icon> for &'static str {
             Icon::TextInput => "bundled/svg/text-input.svg",
             Icon::ListCollapsed => "bundled/svg/chevron-right-2.svg",
             Icon::ListOpen => "bundled/svg/chevron-down-2.svg",
-            Icon::Microphone => "bundled/svg/microphone.svg",
             Icon::Stop => "bundled/svg/stop.svg",
             Icon::StopFilled => "bundled/svg/stop-filled.svg",
             Icon::AddTeammates => "bundled/svg/user-plus-01.svg",
@@ -431,7 +427,6 @@ impl From<Icon> for &'static str {
             Icon::CheckCircleBroken => "bundled/svg/check-circle-broken.svg",
             Icon::LinkExternal => "bundled/svg/link-external-02.svg",
             Icon::Link => "bundled/svg/link-03.svg",
-            Icon::QrCode => "bundled/svg/qr-code-02.svg",
             Icon::Refresh => "bundled/svg/refresh.svg",
             Icon::RefreshCcw => "bundled/svg/refresh-ccw-01.svg",
             Icon::RefreshCw04 => "bundled/svg/refresh-cw-04.svg",

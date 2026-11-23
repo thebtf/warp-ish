@@ -22,7 +22,7 @@ impl FuzzyMatchWorkflowResult {
     ) -> Option<FuzzyMatchWorkflowResult> {
         let name_match_result = fuzzy_match::match_indices_case_insensitive(workflow.name(), query);
         let content_match_result =
-            fuzzy_match::match_indices_case_insensitive(workflow.content(), query);
+            fuzzy_match::match_indices_case_insensitive(workflow.command(), query);
         let description_match_result = workflow.description().as_ref().and_then(|description| {
             fuzzy_match::match_indices_case_insensitive(description.as_str(), query)
         });

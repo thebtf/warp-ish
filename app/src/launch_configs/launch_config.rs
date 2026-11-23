@@ -183,7 +183,7 @@ pub enum PaneMode {
     Terminal,
     /// A terminal that immediately enters Agent Mode.
     Agent,
-    /// A cloud-mode (ambient agent) pane with no local shell.
+    /// Legacy decode-only tag. Restoration prunes this leaf before any pane factory.
     Cloud,
 }
 
@@ -244,19 +244,10 @@ impl TryFrom<PaneNodeSnapshot> for PaneTemplateType {
                 }),
                 // Currently, notebook panes cannot be saved in launch configurations.
                 LeafContents::Notebook(_)
-                | LeafContents::EnvVarCollection(_)
                 | LeafContents::Code(_)
-                | LeafContents::Workflow(_)
                 | LeafContents::Settings(_)
-                | LeafContents::AIFact(_)
                 | LeafContents::CodeReview(_)
-                | LeafContents::CustomRouterEditor
-                | LeafContents::ExecutionProfileEditor
-                | LeafContents::GetStarted
-                | LeafContents::NetworkLog
-                | LeafContents::AIDocument(_)
-                | LeafContents::EnvironmentManagement(_)
-                | LeafContents::AmbientAgent(_) => {
+                | LeafContents::GetStarted => {
                     // TODO: Handle AIDocument in launch config
                     Err(())
                 }

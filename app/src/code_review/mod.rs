@@ -1,6 +1,5 @@
 pub mod code_review_view;
 pub mod comment_list_view;
-pub mod context;
 pub mod diff_size_limits;
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 pub mod diff_state;
@@ -12,9 +11,7 @@ pub mod git_repo_model;
 mod git_repo_models;
 pub mod github_repo_model;
 mod hidden_lines;
-pub mod telemetry_event;
 #[cfg_attr(not(feature = "local_fs"), allow(unused_imports))]
-pub use telemetry_event::CodeReviewTelemetryEvent;
 
 pub(crate) mod code_review_header;
 pub(crate) mod comment_rendering;
@@ -31,8 +28,6 @@ use warpui::{
 };
 
 use crate::code::buffer_location::LocalOrRemotePath;
-use crate::code_review::telemetry_event::CodeReviewPaneEntrypoint;
-use crate::terminal::CLIAgent;
 use crate::terminal::view::TerminalView;
 use crate::util::bindings::CustomAction;
 
@@ -43,17 +38,7 @@ use crate::util::bindings::CustomAction;
 pub struct CodeReviewPanelArg {
     pub repo_path: Option<LocalOrRemotePath>,
     pub terminal_view: WeakViewHandle<TerminalView>,
-    pub entrypoint: CodeReviewPaneEntrypoint,
     pub focus_new_pane: bool,
-    pub cli_agent: Option<CLIAgent>,
-}
-
-/// Scope for diff set context attachment
-#[derive(Clone, Debug, PartialEq)]
-pub enum DiffSetScope {
-    All,
-    /// A single repo-relative file path in the diff set.
-    File(String),
 }
 
 /// The keystroke that submits in the code review panel. Meant to mirror the keystroke for
@@ -95,12 +80,6 @@ pub fn init(app: &mut AppContext) {
             "Undo",
             id!("CodeReviewView") & !id!("IMEOpen"),
         ),
-        FixedBinding::new(
-            CODE_REVIEW_SUBMIT_KEYSTROKE,
-            CodeReviewAction::SubmitReviewComments,
-            id!("CodeReviewView_NotEditing"),
-        )
-        .with_command_description("Send code review comments to agent"),
     ]);
 
     diff_menu::init(app);

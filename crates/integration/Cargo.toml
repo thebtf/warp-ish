@@ -42,7 +42,6 @@ warp = { workspace = true, features = ["integration_tests"] }
 warp_cli = { workspace = true, features = ["integration_tests"] }
 warp_core.workspace = true
 warp-command-signatures.workspace = true
-warp_multi_agent_api.workspace = true
 warp-workflows.workspace = true
 warpui_core.workspace = true
 warpui_extras = { workspace = true, features = [
@@ -56,7 +55,6 @@ warpui = { workspace = true, features = ["integration_tests"] }
 warp_core = { workspace = true, features = ["test-util"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-app-installation-detection.workspace = true
 diesel = { version = "2.2.4", features = ["sqlite", "chrono"] }
 sysinfo.workspace = true
 

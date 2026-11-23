@@ -93,6 +93,8 @@ fn rejects_excluded_command_routes() {
         vec!["warpctrl", "input", "run", "pwd"],
         vec!["warpctrl", "file", "list"],
         vec!["warpctrl", "drive", "list"],
+        vec!["warpctrl", "surface", "warp-drive", "open"],
+        vec!["warpctrl", "surface", "warp-drive", "toggle"],
         vec!["warpctrl", "auth", "status"],
     ] {
         assert!(ControlArgs::try_parse_from(args).is_err());
@@ -210,13 +212,19 @@ fn instance_list_output_serializes_empty_and_populated_lists() {
 
 #[test]
 fn excluded_actions_are_not_allowlisted_catalog_entries() {
-    for excluded in ["auth.api_key.set", "file.write", "block.list"] {
+    for excluded in ["auth.api_key.set", "file.write", "block.list", "surface.ai_assistant.toggle"] {
         assert!(
             ActionKind::ALL
                 .iter()
                 .all(|action| action.as_str() != excluded)
         );
     }
+}
+
+#[test]
+fn retired_legacy_assistant_surface_is_rejected_by_parser_and_wire_name() {
+    assert!(ControlArgs::try_parse_from(["warpctrl", "surface", "ai-assistant", "toggle"]).is_err());
+    assert!(serde_json::from_value::<ActionKind>(json!("surface.ai_assistant.toggle")).is_err());
 }
 
 #[test]
@@ -227,6 +235,8 @@ fn generated_bash_completions_include_readonly_commands() {
     assert!(completions.contains("action"));
     assert!(completions.contains("capability"));
     assert!(!completions.contains("stubs-only"));
+    assert!(!completions.contains("ai-assistant"));
+    assert!(!completions.contains("agent-management"));
     assert!(completions.contains("window"));
     assert!(completions.contains("input"));
     assert!(completions.contains("completions"));
@@ -259,12 +269,12 @@ fn generated_bash_completions_include_mutating_command_groups() {
         generate_completion_string(Shell::Bash).expect("bash completions render to UTF-8");
     assert!(completions.contains("surface"));
     assert!(completions.contains("command-palette"));
-    assert!(completions.contains("warp-drive"));
     assert!(completions.contains("resource-center"));
     assert!(completions.contains("activate"));
     assert!(completions.contains("split"));
     assert!(!completions.contains("history"));
     assert!(!completions.contains("share-to-team"));
+    assert!(!completions.contains("warp-drive"));
 }
 
 #[test]
@@ -522,20 +532,8 @@ fn retained_action_examples() -> Vec<(ActionKind, Vec<&'static str>)> {
             vec!["warpctrl", "surface", "keybindings", "open"],
         ),
         (
-            ActionKind::SurfaceWarpDriveOpen,
-            vec!["warpctrl", "surface", "warp-drive", "open"],
-        ),
-        (
-            ActionKind::SurfaceWarpDriveToggle,
-            vec!["warpctrl", "surface", "warp-drive", "toggle"],
-        ),
-        (
             ActionKind::SurfaceResourceCenterToggle,
             vec!["warpctrl", "surface", "resource-center", "toggle"],
-        ),
-        (
-            ActionKind::SurfaceAiAssistantToggle,
-            vec!["warpctrl", "surface", "ai-assistant", "toggle"],
         ),
         (
             ActionKind::SurfaceCodeReviewOpen,
@@ -554,10 +552,6 @@ fn retained_action_examples() -> Vec<(ActionKind, Vec<&'static str>)> {
             vec!["warpctrl", "surface", "global-search", "open"],
         ),
         (
-            ActionKind::SurfaceConversationListOpen,
-            vec!["warpctrl", "surface", "conversation-list", "open"],
-        ),
-        (
             ActionKind::SurfaceLeftPanelToggle,
             vec!["warpctrl", "surface", "left-panel", "toggle"],
         ),
@@ -572,10 +566,6 @@ fn retained_action_examples() -> Vec<(ActionKind, Vec<&'static str>)> {
         (
             ActionKind::SurfaceVerticalTabsToggle,
             vec!["warpctrl", "surface", "vertical-tabs", "toggle"],
-        ),
-        (
-            ActionKind::SurfaceAgentManagementOpen,
-            vec!["warpctrl", "surface", "agent-management", "open"],
         ),
         (
             ActionKind::FileOpen,
@@ -697,16 +687,10 @@ fn parsed_action_kind(command: &ControlCommand) -> Option<ActionKind> {
             SurfaceCommand::Keybindings(command) => match command {
                 SurfaceOpenCommand::Open(_) => Some(ActionKind::SurfaceKeybindingsOpen),
             },
-            SurfaceCommand::WarpDrive(command) => match command {
-                SurfaceOpenToggleCommand::Open(_) => Some(ActionKind::SurfaceWarpDriveOpen),
-                SurfaceOpenToggleCommand::Toggle(_) => Some(ActionKind::SurfaceWarpDriveToggle),
-            },
             SurfaceCommand::ResourceCenter(command) => match command {
                 SurfaceToggleCommand::Toggle(_) => Some(ActionKind::SurfaceResourceCenterToggle),
             },
-            SurfaceCommand::AiAssistant(command) => match command {
-                SurfaceToggleCommand::Toggle(_) => Some(ActionKind::SurfaceAiAssistantToggle),
-            },
+
             SurfaceCommand::CodeReview(command) => match command {
                 SurfaceOpenToggleCommand::Open(_) => Some(ActionKind::SurfaceCodeReviewOpen),
                 SurfaceOpenToggleCommand::Toggle(_) => Some(ActionKind::SurfaceCodeReviewToggle),
@@ -716,9 +700,6 @@ fn parsed_action_kind(command: &ControlCommand) -> Option<ActionKind> {
             },
             SurfaceCommand::GlobalSearch(command) => match command {
                 SurfaceOpenCommand::Open(_) => Some(ActionKind::SurfaceGlobalSearchOpen),
-            },
-            SurfaceCommand::ConversationList(command) => match command {
-                SurfaceOpenCommand::Open(_) => Some(ActionKind::SurfaceConversationListOpen),
             },
             SurfaceCommand::LeftPanel(command) => match command {
                 SurfaceToggleCommand::Toggle(_) => Some(ActionKind::SurfaceLeftPanelToggle),
@@ -730,10 +711,14 @@ fn parsed_action_kind(command: &ControlCommand) -> Option<ActionKind> {
                 SurfaceOpenToggleCommand::Open(_) => Some(ActionKind::SurfaceVerticalTabsOpen),
                 SurfaceOpenToggleCommand::Toggle(_) => Some(ActionKind::SurfaceVerticalTabsToggle),
             },
-            SurfaceCommand::AgentManagement(command) => match command {
-                SurfaceOpenCommand::Open(_) => Some(ActionKind::SurfaceAgentManagementOpen),
-            },
+
         },
         ControlCommand::Completions { .. } => None,
     }
+}
+
+#[test]
+fn retired_agent_management_surface_is_rejected_by_parser_and_wire_name() {
+    assert!(ControlArgs::try_parse_from(["warpctrl", "surface", "agent-management", "open"]).is_err());
+    assert!(serde_json::from_value::<ActionKind>(json!("surface.agent_management.open")).is_err());
 }

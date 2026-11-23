@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use ai::diff_validation::DiffType;
 use warp_core::ui::appearance::Appearance;
 use warp_editor::content::buffer::InitialBufferState;
 use warp_editor::render::model::LineCount;
@@ -17,7 +16,7 @@ use super::ImmediateSaveError;
 pub use super::diff_viewer::DisplayMode;
 use super::editor::view::CodeEditorView;
 use crate::code::buffer_location::LocalOrRemotePath as BufferFileLocation;
-use crate::code::editor::EditorReviewComment;
+use crate::code::editor::{DiffType, EditorReviewComment};
 use crate::code_review::comments::CommentId;
 use crate::terminal::TerminalView;
 
@@ -45,7 +44,6 @@ pub enum LocalCodeEditorEvent {
     SelectionAddedAsContext {
         relative_file_path: String,
         line_range: Range<LineCount>,
-        selected_text: String,
     },
     #[allow(dead_code)]
     DiscardUnsavedChanges { path: PathBuf },

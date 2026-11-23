@@ -1,23 +1,54 @@
+use std::sync::Arc;
+
 use chrono::{Local, TimeZone};
 use warp_core::execution_mode::{AppExecutionMode, ExecutionMode};
-use warpui::{App, ModelHandle, ReadModel, UpdateModel};
+use warpui::{App, ModelHandle, UpdateModel};
 
 use super::*;
-use crate::auth::{AuthManager, AuthStateProvider};
-use crate::server::server_api::ServerApiProvider;
-use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
+use super::release_source::{LocalReleaseSource, PreparedLocalRelease};
+
+struct NoRequestExpected;
+
+#[async_trait::async_trait]
+impl LocalReleaseSource for NoRequestExpected {
+    async fn latest_version(&self) -> Result<Option<VersionInfo>> {
+        panic!("the test must not read release metadata");
+    }
+
+    async fn prepare_update(
+        &self,
+        _version: &VersionInfo,
+        _update_id: &str,
+        _previous_update_id: Option<&str>,
+    ) -> Result<PreparedLocalRelease> {
+        panic!("the test must not prepare a release");
+    }
+
+    async fn current_changelog(&self) -> Result<Option<channel_versions::Changelog>> {
+        panic!("the test must not read a changelog");
+    }
+}
 
 fn initialize_app(app: &mut App) -> ModelHandle<AutoupdateState> {
-    let server_api_provider = app.add_singleton_model(|_| ServerApiProvider::new_for_test());
-    app.add_singleton_model(|_| AuthStateProvider::new_for_test());
-    app.add_singleton_model(AppTelemetryContextProvider::new_context_provider);
-    app.add_singleton_model(AuthManager::new_for_test);
+    app.add_model(|_| AutoupdateState::new(ReleaseSource::Local(Arc::new(NoRequestExpected))))
+}
 
-    let server_api = app.read_model(&server_api_provider, |server_api_provider, _| {
-        server_api_provider.get()
+#[test]
+fn unavailable_release_source_has_no_update_or_changelog_request() {
+    App::test((), |mut app| async move {
+        let state = app.add_model(|_| AutoupdateState::new(ReleaseSource::Unavailable));
+        app.update_model(&state, |state, ctx| {
+            state.start_polling(ctx);
+            state.manually_check_for_update(ctx);
+            assert!(!state.polling_started);
+            assert!(state.request_queue.is_empty());
+            assert_eq!(state.stage, AutoupdateStage::NoUpdateAvailable);
+        });
+        assert!(get_current_changelog(ReleaseSource::Unavailable)
+            .await
+            .unwrap()
+            .is_none());
     });
-
-    app.add_model(|_| AutoupdateState::new(server_api))
 }
 
 #[test]
@@ -151,8 +182,7 @@ fn test_cli_sdk_mode_prevents_autoupdate_polling() {
 }
 
 /// Some user interactions like focusing/activating the app may trigger an update check
-/// if the daily check hasn't been performed today. The daily check runs regardless of
-/// login state so the server can track retention for anonymous users.
+/// if the daily check hasn't been performed today.
 #[test]
 fn test_user_usage_triggered_daily_check() {
     App::test((), |mut app| async move {

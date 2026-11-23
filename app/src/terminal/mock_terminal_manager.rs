@@ -10,11 +10,9 @@ use super::model::session::Sessions;
 use super::model_events::ModelEventDispatcher;
 use super::terminal_manager::BlockSpacing;
 use super::{ShellLaunchState, TerminalManager, TerminalModel, TerminalView};
-use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
-use crate::ai::blocklist::SerializedBlockListItem;
 use crate::context_chips::prompt_type::PromptType;
 use crate::pane_group::TerminalViewResources;
-use crate::terminal::view::ConversationRestorationInNewPaneType;
+use crate::terminal::model::block::SerializedBlockListItem;
 
 pub struct MockTerminalManager {
     model: Arc<FairMutex<TerminalModel>>,
@@ -30,7 +28,6 @@ impl MockTerminalManager {
         shell_state: ShellLaunchState,
         resources: TerminalViewResources,
         restored_blocks: Option<&Vec<SerializedBlockListItem>>,
-        conversation_restoration: Option<ConversationRestorationInNewPaneType>,
         initial_size: Vector2F,
         window_id: WindowId,
         ctx: &mut AppContext,
@@ -76,11 +73,6 @@ impl MockTerminalManager {
                 None,
                 prompt_type,
                 None,
-                // We use conversation restoration to load a view-only cloud conversation
-                // into the web view.
-                conversation_restoration,
-                None, // inactive_pty_reads_rx
-                false,
                 ctx,
             )
         });
@@ -114,20 +106,6 @@ impl TerminalManager for MockTerminalManager {
         self.model.clone()
     }
 
-    fn on_view_detached(
-        &self,
-        _detach_type: crate::pane_group::pane::DetachType,
-        app: &mut AppContext,
-    ) {
-        // If this is a conversation transcript viewer, unregister the ambient session.
-        if self.model.lock().is_conversation_transcript_viewer() {
-            let terminal_view_id = self.view.id();
-            ActiveAgentViewsModel::handle(app).update(app, |model, ctx| {
-                model.unregister_ambient_session(terminal_view_id, ctx);
-            });
-        }
-    }
-
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -143,7 +121,6 @@ mod testing {
     use warpui::{App, Element, SingletonEntity};
 
     use super::*;
-    use crate::server::server_api::ServerApiProvider;
     use crate::terminal::ShellLaunchState;
     use crate::terminal::shell::{ShellName, ShellType};
 
@@ -174,13 +151,11 @@ mod testing {
             app: &mut App,
             restored_blocks: Option<&[SerializedBlockListItem]>,
         ) -> ViewHandle<TerminalView> {
-            let server_api = app.read(|ctx| ServerApiProvider::as_ref(ctx).get());
             let tips_model = app.add_model(|_| Default::default());
 
             let (window_id, _) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
                 let resources = TerminalViewResources {
                     tips_completed: tips_model,
-                    server_api,
                     model_event_sender: None,
                 };
                 let terminal_init = MockTerminalManager::create_model(
@@ -191,7 +166,6 @@ mod testing {
                     },
                     resources,
                     restored_blocks.map(|blocks| blocks.to_vec()).as_ref(),
-                    None,
                     Vector2F::new(7., 10.5),
                     ctx.window_id(),
                     ctx,

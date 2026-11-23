@@ -1,1 +1,0 @@
-{ "version": 1, "hooks": { "beforeShellExecution": [ { "command": "./hooks/before-shell.sh", "matcher": "^git push", "failClosed": true } ] } }

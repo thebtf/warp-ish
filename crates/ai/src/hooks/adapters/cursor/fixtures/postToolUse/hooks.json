@@ -1,1 +1,0 @@
-{ "version": 1, "hooks": { "postToolUse": [ { "command": "./hooks/post-tool.sh" } ] } }

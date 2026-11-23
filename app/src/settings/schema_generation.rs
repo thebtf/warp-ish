@@ -7,6 +7,9 @@ use serde_json::{Map, Value};
 use settings::schema::SettingSchemaEntry;
 use settings::{SettingSurfaces, SettingsMode};
 use tempfile::NamedTempFile;
+
+#[path = "product_policy.rs"]
+pub(crate) mod product_policy;
 use warp_core::channel::ChannelState;
 use warp_core::features::FeatureFlag;
 
@@ -25,12 +28,27 @@ pub fn dump_settings_schema(output_path: Option<&Path>) -> Result<()> {
 }
 
 fn settings_schema_json(is_flag_enabled: impl Fn(FeatureFlag) -> bool) -> Result<String> {
+    settings_schema_json_for_product(is_flag_enabled, ChannelState::is_windows_warp_ish())
+}
+
+fn settings_schema_json_for_product(
+    is_flag_enabled: impl Fn(FeatureFlag) -> bool,
+    terminal_only: bool,
+) -> Result<String> {
     let mut generator = SchemaGenerator::default();
     let mut root_properties = Map::new();
     let mut entry_count = 0;
 
     for entry in inventory::iter::<SettingSchemaEntry> {
         if entry.is_private {
+            continue;
+        }
+
+        if terminal_only
+            && (!(entry.supported_platforms_fn)().matches_current_platform()
+                || !(entry.surfaces_fn)().includes(SettingsMode::Gui)
+                || !product_policy::is_terminal_public_setting(entry.hierarchy, entry.storage_key))
+        {
             continue;
         }
 
@@ -41,20 +59,32 @@ fn settings_schema_json(is_flag_enabled: impl Fn(FeatureFlag) -> bool) -> Result
             continue;
         }
 
-        let type_schema = (entry.schema_fn)(&mut generator);
-        let mut schema_value = type_schema.to_value();
+        // Project mixed types before invoking their original schema function, so
+        // excluded agent variants do not leave reachable definitions behind.
+        let mut schema_value = if terminal_only {
+            terminal_setting_schema(entry, &mut generator)
+        } else {
+            (entry.schema_fn)(&mut generator).to_value()
+        };
         schema_value
             .as_object_mut()
             .expect("setting schema should be an object")
             .insert(
                 "x-warp-surfaces".to_string(),
-                Value::Array(setting_surface_names((entry.surfaces_fn)())),
+                Value::Array(setting_surface_names(if terminal_only {
+                    SettingSurfaces::GUI
+                } else {
+                    (entry.surfaces_fn)()
+                })),
             );
         let default_json = (entry.file_default_value_fn)();
 
-        if let Ok(default_value) = serde_json::from_str::<Value>(&default_json)
+        if let Ok(mut default_value) = serde_json::from_str::<Value>(&default_json)
             && let Some(object) = schema_value.as_object_mut()
         {
+            if terminal_only {
+                project_terminal_default(entry, &mut default_value);
+            }
             object.insert("default".to_string(), default_value);
         }
 
@@ -68,7 +98,7 @@ fn settings_schema_json(is_flag_enabled: impl Fn(FeatureFlag) -> bool) -> Result
         }
 
         let target = if let Some(hierarchy) = entry.hierarchy {
-            ensure_hierarchy(&mut root_properties, hierarchy)
+            ensure_hierarchy(&mut root_properties, hierarchy, terminal_only)
         } else {
             &mut root_properties
         };
@@ -85,17 +115,29 @@ fn settings_schema_json(is_flag_enabled: impl Fn(FeatureFlag) -> bool) -> Result
     );
     root.insert(
         "title".to_string(),
-        Value::String("Warp Settings".to_string()),
+        Value::String(if terminal_only {
+            "warp-ish Settings".to_string()
+        } else {
+            "Warp Settings".to_string()
+        }),
     );
     root.insert(
         "description".to_string(),
         Value::String(format!(
-            "JSON Schema for Warp settings ({} channel, {entry_count} settings)",
+            "JSON Schema for {} settings ({} channel, {entry_count} settings)",
+            if terminal_only {
+                "warp-ish Windows terminal"
+            } else {
+                "Warp"
+            },
             ChannelState::channel()
         )),
     );
     root.insert("type".to_string(), Value::String("object".to_string()));
     root.insert("properties".to_string(), Value::Object(root_properties));
+    if terminal_only {
+        root.insert("additionalProperties".to_string(), Value::Bool(false));
+    }
 
     if !definitions.is_empty() {
         root.insert("$defs".to_string(), Value::Object(definitions));
@@ -106,6 +148,85 @@ fn settings_schema_json(is_flag_enabled: impl Fn(FeatureFlag) -> bool) -> Result
     strip_empty_enum_entries(&mut root_value);
 
     serde_json::to_string_pretty(&root_value).context("settings schema should serialize")
+}
+
+// These are schema projections only; the original shared settings types remain
+// available to upstream channels. Public file loading needs the same product policy.
+#[derive(schemars::JsonSchema)]
+#[allow(dead_code)]
+#[schemars(rename_all = "snake_case")]
+enum TerminalHeaderToolbarItem {
+    TabsPanel,
+    ToolsPanel,
+    CodeReview,
+}
+
+#[derive(schemars::JsonSchema)]
+#[allow(dead_code)]
+#[schemars(rename_all = "snake_case")]
+enum TerminalHeaderToolbar {
+    Default,
+    Custom {
+        left: Vec<TerminalHeaderToolbarItem>,
+        right: Vec<TerminalHeaderToolbarItem>,
+    },
+}
+
+#[derive(schemars::JsonSchema, serde::Deserialize)]
+#[allow(dead_code)]
+#[serde(default, deny_unknown_fields)]
+struct TerminalNotificationPreferences {
+    // Store the file-form default (snake_case), while reusing the original mode schema.
+    #[schemars(with = "crate::terminal::session_settings::NotificationsMode")]
+    mode: String,
+    is_long_running_enabled: bool,
+    long_running_threshold: u64,
+    is_password_prompt_enabled: bool,
+    is_needs_attention_enabled: bool,
+    play_notification_sound: bool,
+}
+
+impl Default for TerminalNotificationPreferences {
+    fn default() -> Self {
+        use settings_value::SettingsValue as _;
+
+        let defaults = crate::terminal::session_settings::NotificationsSettings::default();
+        Self {
+            mode: defaults.mode.to_file_value().as_str().unwrap().to_owned(),
+            is_long_running_enabled: defaults.is_long_running_enabled,
+            long_running_threshold: defaults.long_running_threshold.as_secs(),
+            is_password_prompt_enabled: defaults.is_password_prompt_enabled,
+            is_needs_attention_enabled: defaults.is_needs_attention_enabled,
+            play_notification_sound: defaults.play_notification_sound,
+        }
+    }
+}
+
+fn terminal_setting_schema(entry: &SettingSchemaEntry, generator: &mut SchemaGenerator) -> Value {
+    match (entry.hierarchy, entry.storage_key) {
+        (Some("general"), "default_session_mode") => {
+            serde_json::json!({"type": "string", "enum": ["terminal", "tab_config"]})
+        }
+        (Some("notifications"), "preferences") => generator
+            .subschema_for::<TerminalNotificationPreferences>()
+            .to_value(),
+        (Some("appearance.tabs"), "header_toolbar_chip_selection") => generator
+            .subschema_for::<TerminalHeaderToolbar>()
+            .to_value(),
+        _ => (entry.schema_fn)(generator).to_value(),
+    }
+}
+
+fn project_terminal_default(entry: &SettingSchemaEntry, value: &mut Value) {
+    match (entry.hierarchy, entry.storage_key) {
+        (Some("general"), "default_session_mode") => *value = Value::String("terminal".into()),
+        (Some("notifications"), "preferences") => {
+            if let Some(object) = value.as_object_mut() {
+                object.remove("is_agent_task_completed_enabled");
+            }
+        }
+        _ => {}
+    }
 }
 
 fn setting_surface_names(surfaces: SettingSurfaces) -> Vec<Value> {
@@ -119,6 +240,7 @@ fn setting_surface_names(surfaces: SettingSurfaces) -> Vec<Value> {
 fn ensure_hierarchy<'a>(
     root_properties: &'a mut Map<String, Value>,
     hierarchy: &str,
+    terminal_only: bool,
 ) -> &'a mut Map<String, Value> {
     let mut current = root_properties;
 
@@ -128,6 +250,9 @@ fn ensure_hierarchy<'a>(
                 let mut object = Map::new();
                 object.insert("type".to_string(), Value::String("object".to_string()));
                 object.insert("properties".to_string(), Value::Object(Map::new()));
+                if terminal_only {
+                    object.insert("additionalProperties".to_string(), Value::Bool(false));
+                }
                 object
             })
         });

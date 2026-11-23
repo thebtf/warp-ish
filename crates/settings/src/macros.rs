@@ -88,8 +88,7 @@
 //! It's easy to declare a setting as being synced to the cloud by
 //! setting the sync_to_cloud field to either Global or PerPlatform.
 //! For either syncing option you can specify whether the setting
-//! should be synced regardless of the current state of
-//! CloudPreferencesSettings.
+//! should be synced regardless of the user's sync preference.
 //!
 //! ```
 //! # use settings::macros::*;
@@ -765,7 +764,7 @@ macro_rules! define_settings_group {
                     Self::new_from_storage(ctx)
                 });
 
-                // Wire up settings event update functions for all settings
+                // Register each setting's storage-key callbacks.
                 $(
                     $crate::macros::register_settings_events!(
                         $group,
@@ -816,15 +815,10 @@ macro_rules! define_settings_group {
 }
 pub use define_settings_group;
 
-/// Registers listeners for settings events that get piped through the
-/// SettingsManager. These events allow for anyone to listen to settings
-/// changes based on storage key rather than individual settings models.
+/// Registers storage-key callbacks for one setting in the settings manager.
 #[macro_export]
 macro_rules! register_settings_events {
     ( $group:ident, $var:ident, $setting:ident, $handle:expr, $ctx:expr ) => {{
-        // The callback bodies must expand here with the concrete setting type
-        // so an inherent method on the setting (for example
-        // `current_value_is_syncable`) can shadow the `Setting` trait default.
         $crate::registration::register_setting_events::<$setting, _>(
             $handle,
             $crate::registration::SettingCallbacks {
@@ -836,28 +830,9 @@ macro_rules! register_settings_events {
                         settings_group.$var.set_value(value, ctx)
                     }
                 },
-                apply_clear: |settings_group: &mut $group, ctx| {
-                    use $crate::Setting as _;
-                    if settings_group
-                        .$var
-                        .is_setting_syncable_on_current_platform(true)
-                    {
-                        log::debug!(
-                            "Clearing cloud synced setting from local storage: {}",
-                            <$setting as $crate::Setting>::storage_key()
-                        );
-                        settings_group.$var.clear_value(ctx)
-                    } else {
-                        Ok(())
-                    }
-                },
                 apply_load: |settings_group: &mut $group, value, explicitly_set, ctx| {
                     use $crate::Setting as _;
                     settings_group.$var.load_value(value, explicitly_set, ctx)
-                },
-                current_value_is_syncable: |settings_group: &$group| {
-                    use $crate::Setting as _;
-                    settings_group.$var.current_value_is_syncable()
                 },
             },
             $ctx,

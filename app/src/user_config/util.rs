@@ -6,12 +6,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use itertools::Itertools;
+use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use walkdir::{DirEntry, WalkDir};
 
-use crate::ai::custom_model_routers::{
-    CustomModelRouter, ModelConfigError, parse_model_config_yaml,
-};
 use crate::launch_configs::launch_config::LaunchConfig;
 use crate::tab_configs::{TabConfig, TabConfigError};
 use crate::themes::theme::{ThemeKind, WarpTheme, WarpThemeConfig};
@@ -159,8 +157,31 @@ pub(super) fn parse_single_theme_dir_entry(item: &DirEntry) -> Option<(ThemeKind
     })
 }
 
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum LegacyWorkflowDocument {
+    AgentMode,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum WorkflowDocument {
+    Legacy(LegacyWorkflowDocument),
+    Command(Workflow),
+}
+
+impl WorkflowDocument {
+    fn into_workflow(self) -> Option<Workflow> {
+        match self {
+            Self::Legacy(LegacyWorkflowDocument::AgentMode) => None,
+            Self::Command(workflow) => Some(workflow),
+        }
+    }
+}
+
 pub(super) fn parse_multi_workflow_dir_entry(item: &DirEntry) -> Option<Vec<Workflow>> {
-    parse_multi_item_file(item, |_, workflow| workflow)
+    parse_multi_item_file(item, |_, workflow: WorkflowDocument| workflow.into_workflow())
+        .map(|workflows| workflows.into_iter().flatten().collect())
 }
 
 pub(super) fn parse_multi_launch_config_dir_entry(item: &DirEntry) -> Option<Vec<LaunchConfig>> {
@@ -187,28 +208,6 @@ pub(super) fn parse_tab_config_dir_entry(
                 error_message: e.to_string(),
             }),
     )
-}
-
-/// Parses a `DirEntry` as a single custom model router (one router per YAML file).
-/// Returns `None` for non-config files, otherwise the parsed router or a
-/// [`ModelConfigError`] describing the read/parse/validation failure.
-pub(super) fn parse_model_config_dir_entry(
-    item: &DirEntry,
-) -> Option<Result<CustomModelRouter, ModelConfigError>> {
-    let file_name = get_file_name(item)?;
-    if !is_config_file(&file_name) {
-        return None;
-    }
-    let make_error = |message: String| ModelConfigError {
-        file_name: file_name.clone(),
-        file_path: item.path().into(),
-        error_message: message,
-    };
-    let contents = match fs::read_to_string(item.path()) {
-        Ok(contents) => contents,
-        Err(e) => return Some(Err(make_error(e.to_string()))),
-    };
-    Some(parse_model_config_yaml(&contents, Some(item.path())).map_err(make_error))
 }
 
 /// Runs the given function on each `DirEntry` within the `Path`. If the path is not a directory,
@@ -251,3 +250,41 @@ pub(super) fn has_name(file_name: &str) -> bool {
 #[cfg(test)]
 #[path = "util_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod workflow_document_tests {
+    use super::*;
+
+    #[test]
+    fn mixed_yaml_keeps_commands_and_skips_legacy_agent_workflows() {
+        let yaml = r#"
+name: First command
+command: echo {{value}}
+arguments:
+  - name: value
+    default_value: original
+    arg_type: Enum
+    enum_id: legacy
+environment_variables: legacy
+---
+type: agent_mode
+name: Retired prompt
+query: summarize the project
+command: must not be run
+---
+name: Last command
+command: pwd
+"#;
+        let workflows: Vec<_> = serde_yaml::Deserializer::from_str(yaml)
+            .map(|document| WorkflowDocument::deserialize(document).unwrap())
+            .filter_map(WorkflowDocument::into_workflow)
+            .collect();
+        assert_eq!(workflows.len(), 2);
+        assert_eq!(workflows[0].command(), "echo {{value}}");
+        assert_eq!(
+            workflows[0].arguments()[0].default_value().as_deref(),
+            Some("original")
+        );
+        assert_eq!(workflows[1].command(), "pwd");
+    }
+}

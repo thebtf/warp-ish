@@ -6,33 +6,6 @@ use crate::test_util::settings::initialize_settings_for_tests;
 use crate::workspace::header_toolbar_item::HeaderToolbarItemKind;
 
 #[test]
-fn use_latest_user_prompt_as_conversation_title_in_tab_names_defaults_to_false() {
-    App::test((), |mut app| async move {
-        initialize_settings_for_tests(&mut app);
-
-        TabSettings::handle(&app).read(&app, |settings, _ctx| {
-            assert!(!*settings.use_latest_user_prompt_as_conversation_title_in_tab_names);
-        });
-    });
-}
-
-#[test]
-fn use_latest_user_prompt_as_conversation_title_in_tab_names_uses_vertical_tabs_path() {
-    assert_eq!(
-        UseLatestUserPromptAsConversationTitleInTabNames::toml_path(),
-        Some("appearance.vertical_tabs.use_latest_prompt_as_title")
-    );
-    assert_eq!(
-        UseLatestUserPromptAsConversationTitleInTabNames::hierarchy(),
-        Some("appearance.vertical_tabs")
-    );
-    assert_eq!(
-        UseLatestUserPromptAsConversationTitleInTabNames::toml_key(),
-        "use_latest_prompt_as_title"
-    );
-}
-
-#[test]
 fn show_vertical_tab_panel_in_restored_windows_defaults_to_false() {
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
@@ -99,13 +72,11 @@ fn header_toolbar_chip_selection_custom_without_code_review_reports_absent() {
             HeaderToolbarItemKind::TabsPanel,
             HeaderToolbarItemKind::ToolsPanel,
         ],
-        right: vec![HeaderToolbarItemKind::NotificationsMailbox],
+        right: vec![],
     };
     assert!(!config.contains_item(&HeaderToolbarItemKind::CodeReview));
     assert!(config.contains_item(&HeaderToolbarItemKind::TabsPanel));
     assert!(config.contains_item(&HeaderToolbarItemKind::ToolsPanel));
-    assert!(config.contains_item(&HeaderToolbarItemKind::NotificationsMailbox));
-    assert!(!config.contains_item(&HeaderToolbarItemKind::AgentManagement));
 }
 
 #[test]
@@ -125,5 +96,24 @@ fn header_toolbar_chip_selection_custom_empty_reports_all_absent() {
     };
     for item in HeaderToolbarItemKind::all_items() {
         assert!(!config.contains_item(&item));
+    }
+}
+
+#[test]
+fn legacy_header_toolbar_layout_keeps_local_order_and_explicit_empty_choices() {
+    let config: HeaderToolbarChipSelection = serde_json::from_value(serde_json::json!({
+        "Custom": {
+            "left": ["TabsPanel", "AgentManagement", "CodeReview", "ToolsPanel"],
+            "right": ["NotificationsMailbox", "ToolsPanel"]
+        }
+    })).unwrap();
+    assert_eq!(config.left_items(), vec![HeaderToolbarItemKind::TabsPanel, HeaderToolbarItemKind::CodeReview, HeaderToolbarItemKind::ToolsPanel]);
+    assert_eq!(config.right_items(), vec![HeaderToolbarItemKind::ToolsPanel]);
+    let empty: HeaderToolbarChipSelection = serde_json::from_value(serde_json::json!({"Custom": {"left": [], "right": []}})).unwrap();
+    assert_eq!(empty, HeaderToolbarChipSelection::Custom { left: vec![], right: vec![] });
+    assert!(serde_json::from_value::<HeaderToolbarChipSelection>(serde_json::json!({"Custom": {"left": "TabsPanel", "right": []}})).is_err());
+    let schema = serde_json::to_string(&schemars::schema_for!(HeaderToolbarChipSelection)).unwrap();
+    for retired in ["AgentManagement", "agent_management", "NotificationsMailbox", "notifications_mailbox"] {
+        assert!(!schema.contains(retired), "retired toolbar entry in schema: {retired}");
     }
 }

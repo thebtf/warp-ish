@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use warpui::{AppContext, Entity, ModelContext, ModelHandle};
 
 #[cfg(feature = "local_fs")]
@@ -5,12 +6,34 @@ mod local;
 #[cfg(feature = "local_fs")]
 pub use local::LocalGitRepoStatusModel;
 
-mod remote;
-pub use remote::RemoteGitRepoStatusModel;
-
 use super::diff_state::DiffStats;
 pub use super::git_repo_models::GitRepoModels;
 use crate::context_chips::display_chip::GitBranchTrackingStatus;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CurrentHead {
+    BranchName(String),
+    HeadlessCommitSha(String),
+}
+
+impl CurrentHead {
+    pub fn title(&self) -> String {
+        match self {
+            CurrentHead::BranchName(name) => name.clone(),
+            CurrentHead::HeadlessCommitSha(sha) => {
+                let short = sha.chars().take(7).collect::<String>();
+                format!("Commit {short}")
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DiffBase {
+    BranchName(String),
+    HeadlessCommitSha(String),
+    UncommittedChanges,
+}
 
 /// Public metadata exposed to consumers — the subset of diff metadata
 /// that the git chip (prompt display, agent view footer) needs.
@@ -31,19 +54,10 @@ pub enum GitRepoStatusEvent {
     MetadataChanged,
 }
 
-// ── Unified GitRepoStatusModel (local or remote backend) ────────────────────
-
-/// Unified per-repo git status model that dispatches to a local or remote
-/// backend, mirroring [`crate::code_review::diff_state::DiffStateModel`].
-///
-/// Consumers (prompt chips, tabs, code review, agent context) hold a
-/// `ModelHandle<GitRepoStatusModel>` and subscribe to its [`GitRepoStatusEvent`]s
-/// without caring whether the repository is local or on an SSH host. Only one
-/// variant is populated at a time.
-pub enum GitRepoStatusModel {
+/// Per-repository information read from the local repository.
+pub struct GitRepoStatusModel {
     #[cfg(feature = "local_fs")]
-    Local(ModelHandle<LocalGitRepoStatusModel>),
-    Remote(ModelHandle<RemoteGitRepoStatusModel>),
+    inner: ModelHandle<LocalGitRepoStatusModel>,
 }
 
 impl Entity for GitRepoStatusModel {
@@ -52,29 +66,36 @@ impl Entity for GitRepoStatusModel {
 
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 impl GitRepoStatusModel {
-    /// Re-emit a sub-model event so subscribers of the unified model observe
-    /// the same `GitRepoStatusEvent`s regardless of backend.
+    /// Re-emit local repository updates for subscribers.
     fn forward_event(&mut self, event: &GitRepoStatusEvent, ctx: &mut ModelContext<Self>) {
         match event {
             GitRepoStatusEvent::MetadataChanged => ctx.emit(GitRepoStatusEvent::MetadataChanged),
         }
     }
 
-    /// Mode-independent status metadata (branch names + HEAD diff stats).
+    /// Local status metadata (branch names + HEAD diff stats).
     pub fn metadata<'a>(&self, ctx: &'a AppContext) -> Option<&'a GitStatusMetadata> {
-        match self {
-            #[cfg(feature = "local_fs")]
-            Self::Local(m) => m.as_ref(ctx).metadata(),
-            Self::Remote(m) => m.as_ref(ctx).metadata(),
+        #[cfg(feature = "local_fs")]
+        {
+            self.inner.as_ref(ctx).metadata()
+        }
+        #[cfg(not(feature = "local_fs"))]
+        {
+            let _ = ctx;
+            None
         }
     }
 
     /// Force a metadata refresh (branch names, diff stats).
     pub fn refresh_metadata(&self, ctx: &mut ModelContext<Self>) {
-        match self {
-            #[cfg(feature = "local_fs")]
-            Self::Local(m) => m.update(ctx, |m, ctx| m.refresh_metadata(ctx)),
-            Self::Remote(m) => m.update(ctx, |m, ctx| m.request_snapshot(ctx)),
+        #[cfg(feature = "local_fs")]
+        {
+            self.inner.update(ctx, |m, ctx| m.refresh_metadata(ctx))
+        }
+        #[cfg(not(feature = "local_fs"))]
+        {
+            let _ = ctx;
+            ()
         }
     }
 }
@@ -90,25 +111,13 @@ pub(super) fn new_local_git_repo_status_model(
         ctx.subscribe_to_model(&inner, |me, _, event, ctx| {
             GitRepoStatusModel::forward_event(me, event, ctx)
         });
-        GitRepoStatusModel::Local(inner)
+        GitRepoStatusModel { inner }
     })
 }
 
-pub(super) fn new_remote_git_repo_status_model(
-    remote_path: warp_util::remote_path::RemotePath,
-    ctx: &mut ModelContext<GitRepoModels>,
-) -> ModelHandle<GitRepoStatusModel> {
-    let inner = ctx.add_model(|ctx| RemoteGitRepoStatusModel::new(remote_path, ctx));
-    ctx.add_model(|ctx| {
-        ctx.subscribe_to_model(&inner, |me, _, event, ctx| {
-            GitRepoStatusModel::forward_event(me, event, ctx)
-        });
-        GitRepoStatusModel::Remote(inner)
-    })
-}
 #[cfg(all(test, feature = "local_fs"))]
 impl GitRepoStatusModel {
-    /// Wraps a local-backend test model in the unified enum.
+    /// Wraps a local-backend test model.
     pub(crate) fn new_local_for_test(
         repository: ModelHandle<repo_metadata::Repository>,
         metadata: Option<GitStatusMetadata>,
@@ -117,7 +126,7 @@ impl GitRepoStatusModel {
         let inner =
             ctx.add_model(move |_| LocalGitRepoStatusModel::new_for_test(repository, metadata));
         ctx.subscribe_to_model(&inner, |me, _, event, ctx| me.forward_event(event, ctx));
-        Self::Local(inner)
+        Self { inner }
     }
 
     pub(crate) fn set_metadata_for_test(
@@ -125,10 +134,6 @@ impl GitRepoStatusModel {
         metadata: Option<GitStatusMetadata>,
         ctx: &mut ModelContext<Self>,
     ) {
-        match self {
-            #[cfg(feature = "local_fs")]
-            Self::Local(m) => m.update(ctx, |m, ctx| m.set_metadata_for_test(metadata, ctx)),
-            Self::Remote(_) => unreachable!("remote test models are not used"),
-        }
+        self.inner.update(ctx, |m, ctx| m.set_metadata_for_test(metadata, ctx))
     }
 }

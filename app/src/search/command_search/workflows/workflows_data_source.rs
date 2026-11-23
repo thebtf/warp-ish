@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use itertools::Itertools;
 use warpui::{AppContext, SingletonEntity};
 
-use super::{WorkflowIdentity, WorkflowSearchItem};
+use super::WorkflowSearchItem;
 use crate::completer::SessionContext;
 use crate::search::command_search::searcher::CommandSearchItemAction;
 use crate::search::command_search::settings::CommandSearchSettings;
@@ -15,7 +15,7 @@ use crate::workflows::local_workflows::LocalWorkflows;
 #[cfg(feature = "local_fs")]
 use crate::workflows::local_workflows::UseCache;
 use crate::workflows::workflow::Workflow;
-use crate::workflows::{WorkflowSource, WorkflowType};
+use crate::workflows::WorkflowSource;
 
 pub struct WorkflowsDataSource {
     /// Contains workflows keyed by WorkflowSource.
@@ -23,7 +23,7 @@ pub struct WorkflowsDataSource {
 }
 
 impl WorkflowsDataSource {
-    /// Creates a new WorkflowsDataSource containing team, project, local, and global workflows.
+    /// Loads the app, global, user, and project workflows for the current session.
     pub fn new(session_context: Option<&SessionContext>, app: &mut AppContext) -> Self {
         let mut workflows_by_source: HashMap<WorkflowSource, Vec<Workflow>> = HashMap::new();
 
@@ -100,9 +100,7 @@ impl SyncDataSource for WorkflowsDataSource {
                         FuzzyMatchWorkflowResult::try_match(query_str, &workflow, "").map(
                             |match_result| {
                                 WorkflowSearchItem {
-                                    identity: WorkflowIdentity::Local(Box::new(
-                                        WorkflowType::Local(workflow),
-                                    )),
+                                    workflow,
                                     source,
                                     fuzzy_matched_workflow: match_result,
                                 }

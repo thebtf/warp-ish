@@ -1,5 +1,5 @@
 mod changelog;
-mod channel_versions;
+mod release_source;
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "macos")]
@@ -8,7 +8,6 @@ mod mac;
 mod windows;
 
 use std::collections::VecDeque;
-use std::sync::Arc;
 use std::time::Duration;
 
 use ::channel_versions::{ParsedVersion, VersionInfo};
@@ -24,14 +23,11 @@ use warpui::windowing::state::ApplicationStage;
 use warpui::windowing::{self, WindowManager};
 use warpui::{AppContext, Entity, ModelContext, SingletonEntity, ViewContext};
 
-pub use self::changelog::get_current_changelog;
-use self::channel_versions::fetch_channel_versions;
-use crate::channel::Channel;
+pub(crate) use self::changelog::get_current_changelog;
+pub(crate) use self::release_source::ReleaseSource;
 use crate::features::FeatureFlag;
-use crate::server::server_api::ServerApi;
-use crate::server::telemetry::TelemetryEvent;
 use crate::workspace::Workspace;
-use crate::{ChannelState, send_telemetry_from_ctx, send_telemetry_sync_from_app_ctx};
+use crate::{ChannelState};
 
 /// A successfully downloaded and unpacked target update.
 #[derive(Clone, Debug)]
@@ -94,9 +90,7 @@ impl AutoupdateStage {
 }
 
 pub struct AutoupdateState {
-    /// We only want to hit /client_version/daily about once a day. This field is client state for
-    /// implementing the logic so that we (mostly) limit requests to that endpoint to once a day,
-    /// though we don't persist that across app-restarts.
+    /// Tracks whether an activation-triggered check is due during this app session.
     last_successful_daily_update_check: Option<DateTime<FixedOffset>>,
     stage: AutoupdateStage,
     /// The most recently downloaded and extracted update. We need this so that if there are
@@ -107,7 +101,7 @@ pub struct AutoupdateState {
     /// RequestTypes have different behavior and side-effects, so it's important not to skip any
     /// but to queue them instead.
     request_queue: VecDeque<RequestType>,
-    server_api: Arc<ServerApi>,
+    source: ReleaseSource,
     /// Whether the polling loop has been explicitly started. Requests are silently queued but not
     /// executed until `start_polling` is called. This ensures no version-check requests are made
     /// before onboarding completes.
@@ -115,9 +109,9 @@ pub struct AutoupdateState {
 }
 
 impl AutoupdateState {
-    pub fn new(server_api: Arc<ServerApi>) -> Self {
+    pub(crate) fn new(source: ReleaseSource) -> Self {
         Self {
-            server_api,
+            source,
             last_successful_daily_update_check: None,
             stage: AutoupdateStage::default(),
             downloaded_update: None,
@@ -126,8 +120,8 @@ impl AutoupdateState {
         }
     }
 
-    pub fn register(ctx: &mut AppContext, server_api: Arc<ServerApi>) {
-        ctx.add_singleton_model(move |_ctx| Self::new(server_api));
+    pub(crate) fn register(ctx: &mut AppContext, source: ReleaseSource) {
+        ctx.add_singleton_model(move |_ctx| Self::new(source));
     }
 
     /// Start the autoupdate polling loop. Idempotent: subsequent calls are no-ops.
@@ -135,7 +129,7 @@ impl AutoupdateState {
     /// Must be called explicitly once onboarding (if any) has completed. For returning users
     /// who bypass onboarding, this should be called during app startup.
     pub fn start_polling(&mut self, ctx: &mut ModelContext<Self>) {
-        if self.polling_started {
+        if self.polling_started || matches!(self.source, ReleaseSource::Unavailable) {
             return;
         }
         if FeatureFlag::Autoupdate.is_enabled() && AppExecutionMode::as_ref(ctx).can_autoupdate() {
@@ -198,9 +192,7 @@ impl AutoupdateState {
 
     /// After queueing the request, immediately try executing it.
     fn enqueue_request(&mut self, request_type: RequestType, ctx: &mut ModelContext<Self>) {
-        // WASM cannot execute any update requests; skip enqueuing entirely so the
-        // queue never grows with work that can never be consumed.
-        if cfg!(target_family = "wasm") {
+        if cfg!(target_family = "wasm") || matches!(self.source, ReleaseSource::Unavailable) {
             return;
         }
         self.request_queue.push_back(request_type);
@@ -236,8 +228,7 @@ impl AutoupdateState {
         )
     }
 
-    /// Trigger the update check to /client_version/daily, but only go through with sending the
-    /// request if we haven't done that today.
+    /// Request one background check per day when the app becomes active.
     pub fn maybe_daily_check_for_update(&mut self, ctx: &mut ModelContext<Self>) {
         self.enqueue_request(RequestType::DailyCheck, ctx)
     }
@@ -254,23 +245,20 @@ impl AutoupdateState {
             ctx.windows().app_is_active(),
         );
 
-        // Other RequestTypes will fallback to hitting `/client_version`, but DailyCheck will not.
         if request_type == RequestType::DailyCheck && !is_daily {
             return;
         }
 
+        let ReleaseSource::Local(source) = &self.source else {
+            return;
+        };
+        let source = source.clone();
         self.stage = AutoupdateStage::CheckingForUpdate;
         ctx.notify();
-
-        let server_api = self.server_api.clone();
         ctx.spawn(
             async move {
                 let update_id = new_update_id();
-                let channel = ChannelState::channel();
-                log::info!("Checking for update on channel {channel}. Update id is {update_id}");
-                let version = fetch_version(&channel, is_daily, &update_id, server_api)
-                    .await
-                    .context("Error checking for new version");
+                let version = source.latest_version().await.context("Error checking for new version");
                 report_if_error!(version);
                 (update_id, version)
             },
@@ -280,7 +268,7 @@ impl AutoupdateState {
         );
     }
 
-    // Only make this the `/client_version/daily` request if:
+    // Record one successful daily check if:
     //   1. We haven't yet done it today.
     //   2. The app is currently active during this polling period, or if we've explicitly
     //      triggered the daily request rather than waiting for the poll interval. Note that
@@ -387,7 +375,7 @@ impl AutoupdateState {
         &mut self,
         request_type: RequestType,
         update_id: String,
-        version: Result<VersionInfo>,
+        version: Result<Option<VersionInfo>>,
         is_daily: bool,
         ctx: &mut ModelContext<AutoupdateState>,
     ) {
@@ -400,7 +388,9 @@ impl AutoupdateState {
             return;
         }
 
-        let update_available = version.map(|version| self.should_update(version, update_id));
+        let update_available = version.map(|version| {
+            version.map_or(UpdateReady::No, |version| self.should_update(version, update_id))
+        });
         match &update_available {
             Ok(UpdateReady::CanDownload {
                 new_version,
@@ -444,9 +434,6 @@ impl AutoupdateState {
                 log::info!("No update available");
             }
             Err(e) => {
-                // We commonly get errors as the autoupdate code runs when a laptop wakes up
-                // briefly while asleep, but the network call to check for updates gets cancelled
-                // when returning to sleep. So we fail silently and wait for the next update poll.
                 self.stage = AutoupdateStage::NoUpdateAvailable;
                 log::warn!("Error checking for update {e:#}");
             }
@@ -473,13 +460,19 @@ impl AutoupdateState {
         // want to have cleaned it up.
         let last_successful_update_id =
             self.downloaded_update.as_ref().map(|d| d.update_id.clone());
+        let source = self.source.clone();
+        let version = new_version.clone();
+        let id = update_id.clone();
         let _ = ctx.spawn(
-            download_update(
-                new_version.clone(),
-                update_id.clone(),
-                last_successful_update_id,
-                self.server_api.clone(),
-            ),
+            async move {
+                match source {
+                    ReleaseSource::Local(source) => source
+                        .prepare_update(&version, &id, last_successful_update_id.as_deref())
+                        .await
+                        .map(|package| package.stage()),
+                    ReleaseSource::Unavailable => Ok(DownloadReady::No),
+                }
+            },
             move |autoupdate_state, download_ready, ctx| {
                 autoupdate_state.on_download_update_complete(
                     request_type,
@@ -521,7 +514,6 @@ impl AutoupdateState {
                 })
             }
             Ok(DownloadReady::NeedsAuthorization) => {
-                send_telemetry_from_ctx!(TelemetryEvent::UnableToAutoUpdateToNewVersion, ctx);
                 self.stage = AutoupdateStage::UnableToUpdateToNewVersion { new_version };
                 Ok(UpdateReady::No)
             }
@@ -532,9 +524,6 @@ impl AutoupdateState {
             }
             Err(e) => {
                 log::warn!("Error downloading update {e:#}");
-                // We commonly get errors as the autoupdate code runs when a laptop wakes up
-                // briefly while asleep, but the network call to download gets cancelled when
-                // returning to sleep. So we fail silently and wait for the next update poll.
                 self.stage = AutoupdateStage::NoUpdateAvailable;
                 Err(e)
             }
@@ -714,13 +703,9 @@ pub enum ReadyForRelaunch {
 pub enum RequestType {
     /// For when the user triggers the check manually in the settings page.
     ManualCheck,
-    /// We automatically poll for updates every AUTOUPDATE_POLL. This can also trigger the daily
-    /// request to /client_version/daily if it hasn't been done yet today.
+    /// Periodic check while the app has a local release source.
     Poll,
-    /// Only go through with the check to /client_version/daily if it hasn't been done yet today.
-    /// Otherwise, abort the check. This is useful if we want to eagerly send the check b/c we
-    /// don't want to wait for the next polling interval. Relying on the polling interval alone to
-    /// send the daily checks could lead to under-counting.
+    /// Check on activation if no daily check has succeeded yet.
     DailyCheck,
 }
 
@@ -764,63 +749,6 @@ fn new_update_id() -> String {
         .map(char::from)
         .take(7)
         .collect()
-}
-
-/// Fetch the current version on the given channel.
-async fn fetch_version(
-    channel: &Channel,
-    is_daily: bool,
-    update_id: &str,
-    server_api: Arc<ServerApi>,
-) -> Result<VersionInfo> {
-    let versions = fetch_channel_versions(update_id, server_api.clone(), false, is_daily).await?;
-
-    let channel_version = match channel {
-        Channel::Stable => versions.stable,
-        Channel::Preview => versions.preview,
-        Channel::Dev => versions.dev,
-        Channel::Integration | Channel::Local | Channel::Oss => {
-            // These channels don't ship release artifacts, so there's no
-            // version to fetch. This branch is normally unreachable because
-            // `AutoupdateState::register` gates the poll loop on the
-            // `Autoupdate` feature flag, but builds (e.g. local wasm bundles)
-            // can end up with `Autoupdate` enabled while running on one of
-            // these channels. Return an error rather than panicking so the
-            // poll loop just logs and bails.
-            anyhow::bail!(
-                "Local, integration, and open-source channel binaries don't support autoupdate"
-            );
-        }
-    };
-    let version_info = channel_version.version_info();
-    Ok(version_info)
-}
-
-// This method is unimplemented on wasm, so we allow unused variables.
-#[cfg_attr(target_family = "wasm", allow(unused_variables))]
-async fn download_update(
-    version_info: VersionInfo,
-    update_id: String,
-    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
-    last_successful_update_id: Option<String>,
-    server_api: Arc<ServerApi>,
-) -> Result<DownloadReady> {
-    if ChannelState::app_version().is_none() {
-        log::info!("No tag set, not performing autoupdate.");
-        return Ok(DownloadReady::No);
-    }
-
-    cfg_if::cfg_if! {
-        if #[cfg(target_os = "macos")] {
-            mac::download_update_and_cleanup(&version_info, &update_id, last_successful_update_id.as_deref(), server_api.http_client()).await
-        } else if #[cfg(target_os = "linux")] {
-            linux::download_update_and_cleanup(&version_info, &update_id, server_api.http_client()).await
-        } else if #[cfg(windows)] {
-            windows::download_update_and_cleanup(&version_info, &update_id, server_api.http_client()).await
-        } else {
-            Err(anyhow::anyhow!("Not implemented"))
-        }
-    }
 }
 
 /// Apply a downloaded update. If this returns `Ok(ReadyForRelaunch::Yes)`, then the app should be
@@ -877,7 +805,6 @@ pub fn initiate_relaunch_for_update(app: &mut AppContext) {
         } => {
             // There's a pending update, and we haven't finished applying it.
             let new_version = new_version.clone();
-            let new_version_string = new_version.version.clone();
             let update_id = update_id.clone();
 
             // First, record that we're applying an update.
@@ -902,14 +829,6 @@ pub fn initiate_relaunch_for_update(app: &mut AppContext) {
                     // finalize_update reports the error itself.
                     return;
                 }
-
-                // Report that we're attempting to relaunch for an update, so that we can track failed
-                // relaunches (e.g. if the update got corrupted). This is sent synchronously because
-                // the app is about to quit.
-                let event = TelemetryEvent::AutoupdateRelaunchAttempt {
-                    new_version: new_version_string,
-                };
-                send_telemetry_sync_from_app_ctx!(event, app);
 
                 // Request termination of the app.
                 app.terminate_app(TerminationMode::Cancellable, None);
@@ -1042,26 +961,6 @@ pub fn spawn_child_if_necessary(app: &mut AppContext) {
     }
 }
 
-pub fn manually_download_new_version(ctx: &mut AppContext) {
-    match get_update_state(ctx) {
-        AutoupdateStage::UnableToUpdateToNewVersion { new_version }
-        | AutoupdateStage::UnableToLaunchNewVersion { new_version } => {
-            manually_download_version(&ChannelState::channel(), &new_version, ctx)
-        }
-        _ => {
-            log::warn!(
-                "Tried to manually download update in the wrong autoupdate state, skipping."
-            );
-        }
-    }
-}
-
-#[allow(unused_variables)]
-fn manually_download_version(channel: &Channel, version: &VersionInfo, ctx: &mut AppContext) {
-    #[cfg(target_os = "macos")]
-    mac::manually_download_version(channel, version, ctx);
-}
-
 pub(crate) fn check_and_report_update_errors(_ctx: &mut AppContext) {
     #[cfg(windows)]
     windows::check_and_report_update_errors(_ctx);
@@ -1137,24 +1036,6 @@ pub fn is_incoming_version_past_current(version: Option<&str>) -> bool {
     };
 
     installed_version.is_some_and(|curr_version| incoming_version > curr_version)
-}
-
-/// Returns the base URL that contains release assets for the given version
-/// of this app bundle.
-fn release_assets_directory_url(channel: Channel, version: &str) -> String {
-    let releases_base_url = ChannelState::releases_base_url();
-    match channel {
-        Channel::Stable => {
-            format!("{releases_base_url}/stable/{version}")
-        }
-        Channel::Preview => {
-            format!("{releases_base_url}/preview/{version}")
-        }
-        Channel::Dev => format!("{releases_base_url}/dev/{version}"),
-        Channel::Local | Channel::Integration | Channel::Oss => {
-            unreachable!("local/integration/oss autoupdate not supported");
-        }
-    }
 }
 
 #[cfg(test)]
