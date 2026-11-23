@@ -90,7 +90,9 @@ impl ChannelState {
                 );
                 self.windows_warp_ish_data_profile = Some(profile);
             }
-            Err(std::env::VarError::NotPresent) => {}
+            Err(std::env::VarError::NotPresent) => {
+                self.windows_warp_ish_data_profile = crate::paths::active_windows_import_profile();
+            }
             Err(std::env::VarError::NotUnicode(_)) => {
                 anyhow::bail!("WARP_DATA_PROFILE must contain only ASCII characters");
             }
