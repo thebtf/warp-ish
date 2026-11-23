@@ -76,7 +76,7 @@ exit 0
 '@
     Write-Fixture 'bin/cargo.ps1' @'
 if ($args[0] -eq '+1.92.0') { $args = $args[1..($args.Count - 1)] }
-elseif ($args[0] -ne 'about') { exit 21 }
+elseif ($args[0] -notin @('about', 'metadata')) { exit 21 }
 if ($args[0] -eq '--version') {
     if ($env:PACKAGE_FIXTURE_MODE -eq 'cargo-mismatch') { 'cargo 9.9.9' } else { 'cargo 1.92.0' }
     exit 0
@@ -93,6 +93,37 @@ if ($args[0] -eq 'about') {
         $args[$target + 1] -ne 'x86_64-pc-windows-msvc') { exit 32 }
     $index = [array]::IndexOf($args, '-o')
     'Fixture dependency attribution' | Set-Content -LiteralPath $args[$index + 1]
+    exit 0
+}
+if ($args[0] -eq 'metadata') {
+    $manifest = [array]::IndexOf($args, '--manifest-path')
+    $features = [array]::IndexOf($args, '--features')
+    $platform = [array]::IndexOf($args, '--filter-platform')
+    if ($env:RUSTUP_TOOLCHAIN -ne '1.92.0' -or '--locked' -notin $args -or '--offline' -notin $args -or
+        $manifest -lt 0 -or $features -lt 0 -or $platform -lt 0 -or
+        $args[$manifest + 1] -ne (Join-Path (Get-Location).ProviderPath 'app\Cargo.toml') -or
+        $args[$features + 1] -ne 'release_bundle gui' -or
+        $args[$platform + 1] -ne 'x86_64-pc-windows-msvc') { exit 33 }
+    $dependencyRoot = Join-Path (Split-Path $PSScriptRoot -Parent) '.agent/tmp/cargo-git-licenses'
+    $dependencies = @(
+        @('command-corrections', 'command-corrections.git', 'AGPL-3.0-only', 'corrections'),
+        @('warp-workflows', 'workflows', 'Apache-2.0', 'workflows/workflows'),
+        @('warp-workflows-types', 'workflows', 'Apache-2.0', 'workflows/workflow-types'),
+        @('warp-command-signatures', 'command-signatures.git', 'MIT', 'signatures/command-signatures'),
+        @('warp-completion-metadata', 'command-signatures.git', 'MIT', 'signatures/completion-metadata')
+    )
+    $packages = foreach ($dependency in $dependencies) {
+        $revision = if ($dependency[0] -eq 'command-corrections') {
+            'eae08c8c51d9bc9741fcb17eef2c21f696aebbeb'
+        } else { 'a' * 40 }
+        $lockedRevision = if ($env:PACKAGE_FIXTURE_MODE -eq 'license-source') { 'b' * 40 } else { $revision }
+        @{
+            name = $dependency[0]; license = $dependency[2]; publish = @()
+            source = "git+https://github.com/warpdotdev/$($dependency[1])?rev=$revision#$lockedRevision"
+            manifest_path = Join-Path $dependencyRoot "$($dependency[3])/Cargo.toml"
+        }
+    }
+    @{ packages = @($packages) } | ConvertTo-Json -Depth 4
     exit 0
 }
 if ($args[0] -ne 'build' -or '-j' -notin $args -or '--locked' -notin $args) { exit 19 }
@@ -152,6 +183,9 @@ function Start-Process {
     Write-Fixture 'app/channels/oss/icon/no-padding/icon.ico' 'fixture icon'
     $licensePaths = [regex]::Matches($prepare, "Path = '([^']+)'") | ForEach-Object { $_.Groups[1].Value }
     foreach ($path in $licensePaths) { Write-Fixture $path 'Fixture additional license' }
+    Write-Fixture '.agent/tmp/cargo-git-licenses/corrections/LICENSE.md' 'Fixture corrections license text'
+    Write-Fixture '.agent/tmp/cargo-git-licenses/workflows/LICENSE' 'Fixture workflows license text'
+    Write-Fixture '.agent/tmp/cargo-git-licenses/signatures/LICENSE.md' 'Fixture signatures license text'
     [void][IO.Directory]::CreateDirectory((Join-Path $fixture 'resources'))
     foreach ($runtime in @('.agent/continuity', '.agent/session-checkpoints', '.agent/tmp', '.serena')) {
         Write-Fixture "$runtime/fixture-state" 'valuable runtime state'
@@ -187,6 +221,15 @@ function Start-Process {
     Assert-That ($record.manifest_sha256 -eq (Get-FileHash -LiteralPath (Join-Path $package 'manifest.json')).Hash.ToLowerInvariant()) 'Manifest binding failed'
     $manifest = Get-Content -LiteralPath (Join-Path $package 'manifest.json') -Raw | ConvertFrom-Json
     Assert-That ($manifest.files.Count -eq 13) 'Incorrect complete installer payload count'
+    $notices = Get-Content -LiteralPath (Join-Path $package 'app/resources/THIRD_PARTY_LICENSES.txt') -Raw
+    $expectedNotices = @(
+        'command-corrections (MIT)', 'Fixture corrections license text',
+        'warp-workflows, warp-workflows-types (Apache-2.0)', 'Fixture workflows license text',
+        'warp-command-signatures, warp-completion-metadata (MIT)', 'Fixture signatures license text'
+    )
+    foreach ($notice in $expectedNotices) {
+        Assert-That ([regex]::Matches($notices, [regex]::Escape($notice)).Count -eq 1) "Incorrect Git dependency notice: $notice"
+    }
     $schema = Get-Content -LiteralPath (Join-Path $package 'app/resources/settings_schema.json') -Raw | ConvertFrom-Json
     Assert-That ($schema.generated_by_sha256 -eq (Get-FileHash -LiteralPath (Join-Path $package 'app/warp-ish.exe')).Hash) 'Schema did not use staged executable'
     Run-Package '0.1.0-fixture' $false
@@ -200,9 +243,13 @@ function Start-Process {
         Run-Package "0.1.0-$mode" $false
         Assert-That (-not (Test-Path -LiteralPath (Join-Path $fixture ".agent/build/packages/0.1.0-$mode"))) 'Toolchain mismatch promoted'
     }
-    foreach ($mode in @('fail', 'drift')) {
+    foreach ($mode in @('fail', 'license-source', 'drift')) {
         $env:PACKAGE_FIXTURE_MODE = $mode
-        Run-Package "0.1.0-$mode" $false
+        if ($mode -eq 'license-source') {
+            Run-Package "0.1.0-$mode" $false $fixture 'Unexpected source for bundled dependency command-corrections'
+        } else {
+            Run-Package "0.1.0-$mode" $false
+        }
         Assert-That (-not (Test-Path -LiteralPath (Join-Path $fixture ".agent/build/packages/0.1.0-$mode"))) 'Failed package promoted'
         Assert-That (-not (Test-Path -LiteralPath (Join-Path $fixture 'target/rlto'))) 'Side outputs not cleaned'
         $targets = @(Get-ChildItem -LiteralPath (Join-Path $fixture '.agent/build') -Directory | Where-Object Name -like 'package-*')
@@ -211,7 +258,7 @@ function Start-Process {
         Assert-That ($incomplete.Count -eq 0) 'Failed staging not cleaned'
     }
     $states = @(Get-ChildItem -LiteralPath (Join-Path $fixture '.agent/runs') -Filter state.json -Recurse | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json })
-    Assert-That ($states.Count -eq 3 -and @($states | Where-Object { -not $_.build_targets_cleaned }).Count -eq 0) 'Run evidence or cleanup missing'
+    Assert-That ($states.Count -eq 4 -and @($states | Where-Object { -not $_.build_targets_cleaned }).Count -eq 0) 'Run evidence or cleanup missing'
     foreach ($state in @($states | Where-Object status -eq 'failed')) {
         Assert-That ($state.failed_stage_removed -and $null -ne $state.failed_stage_files) 'Failed stage cleanup or evidence missing'
     }
