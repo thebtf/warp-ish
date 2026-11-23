@@ -1,6 +1,5 @@
 //! Utilities for parsing unified diff hunks and extracting specific line content.
 
-use ai::agent::action::CommentSide;
 use num_traits::SaturatingSub;
 use warp_editor::render::model::LineCount;
 
@@ -8,6 +7,13 @@ use crate::code::editor::line::EditorLineLocation;
 use crate::code_review::comments::LineDiffContent;
 use crate::code_review::diff_state::DiffLineType;
 use crate::util::git::parse_unified_diff_header;
+
+/// The side of a unified diff that a comment refers to.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(super) enum CommentSide {
+    Right,
+    Left,
+}
 
 #[derive(Debug)]
 pub(crate) enum DiffHunkParseError {
@@ -150,7 +156,7 @@ fn get_diff_line_from_diff_hunk(
 /// # Returns
 /// * the `EditorLineLocation` representing the comment, where the line_range represents the location in the new file
 /// * the `LineDiffContent` from the parsed diff hunk.
-pub(crate) fn parse_diff_hunk(
+pub(super) fn parse_diff_hunk(
     diff_hunk: &str,
     target_line_number: usize,
     side: Option<CommentSide>,

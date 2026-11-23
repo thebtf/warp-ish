@@ -27,7 +27,6 @@ pub fn main() -> Result<()> {
             ),
             logfile_name: "warp_integration.log".into(),
             server_config: WarpServerConfig {
-                firebase_auth_api_key: "".into(),
                 // Use an IP in the IANA testing range, with the TCP discard port, to
                 // black-hole server traffic.
                 server_root_url: "http://192.0.2.0:9".into(),
@@ -42,8 +41,6 @@ pub fn main() -> Result<()> {
                 oz_root_url: "http://192.0.2.0:9".into(),
                 workload_audience_url: None,
             },
-            telemetry_config: None,
-            crash_reporting_config: None,
             autoupdate_config: None,
             mcp_static_config: None,
         },
@@ -61,10 +58,6 @@ pub fn main() -> Result<()> {
                 // logger leads to a panic.
                 warp::terminal::local_tty::run_terminal_server(args);
                 return Ok(());
-            }
-            #[cfg(not(target_family = "wasm"))]
-            WorkerCommand::RemoteServerProxy(_) | WorkerCommand::RemoteServerDaemon(_) => {
-                return warp::run();
             }
             #[allow(unreachable_patterns)]
             other => panic!("Worker not supported in integration tests: {other:?}"),

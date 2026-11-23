@@ -2,18 +2,16 @@ use serde_json::Value;
 use warpui::{App, SingletonEntity};
 
 use super::Prompt;
-use crate::auth::AuthStateProvider;
 use crate::context_chips::ContextChipKind;
 use crate::context_chips::prompt::{PromptConfiguration, PromptSelection};
-use crate::settings::WarpPromptSeparator;
+use crate::settings::{InputSettings, WarpPromptSeparator, init_and_register_user_preferences};
 use crate::terminal::session_settings::SessionSettings;
-use crate::test_util::settings::initialize_settings_for_tests;
-use crate::workspaces::user_workspaces::UserWorkspaces;
 
 fn initialize_app(app: &mut App) {
-    initialize_settings_for_tests(app);
-    app.add_singleton_model(UserWorkspaces::default_mock);
-    app.add_singleton_model(|_| AuthStateProvider::new_for_test());
+    app.update(init_and_register_user_preferences);
+    app.add_singleton_model(|_| crate::settings::manager::SettingsManager::default());
+    SessionSettings::register(app);
+    InputSettings::register(app);
 }
 
 #[test]

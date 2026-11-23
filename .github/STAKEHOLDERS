@@ -65,7 +65,6 @@
 # MCP and skills
 /app/src/ai/mcp/ @peicodes @vkodithala
 /app/src/ai/skills/ @peicodes @vkodithala
-/crates/mcp/ @peicodes @vkodithala
 /resources/bundled/skills/feedback/ @captainsafia
 
 # File-based MCP (overrides MCP and skills above)
@@ -86,7 +85,6 @@
 /app/src/terminal/input/conversations/ @harryalbert
 /app/src/input_classifier.rs @harryalbert
 /crates/input_classifier/ @harryalbert
-/crates/natural_language_detection/ @harryalbert
 
 # Notifications
 /app/src/notification.rs @harryalbert

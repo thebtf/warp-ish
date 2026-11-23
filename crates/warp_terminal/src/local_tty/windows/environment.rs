@@ -1,13 +1,12 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::io;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::path::PathBuf;
 
 use itertools::Itertools;
 use warp_core::channel::ChannelState;
-use warp_core::cli_agent_protocol::{
-    CLI_AGENT_PROTOCOL_VERSION, WARP_CLI_AGENT_PROTOCOL_VERSION_ENV, WARP_CLIENT_VERSION_ENV,
-};
-use warp_core::features::FeatureFlag;
+use warp_core::paths::warp_home_config_dir;
 use warp_core::safe_info;
 use windows::Win32::System::Environment::ExpandEnvironmentStringsW;
 use windows::core::{HSTRING, PCWSTR};
@@ -16,8 +15,9 @@ use winreg::types::FromRegValue;
 use winreg::{RegKey, RegValue};
 
 use crate::focus_env::{FOCUS_URL_ENV, TERMINAL_SESSION_UUID_ENV};
-use crate::local_tty::PtyOptions;
+use crate::local_tty::{PtyOptions, WARP_CLIENT_VERSION_ENV};
 use crate::local_tty::shell::{ShellStarter, extra_path_entries, ssh_socket_dir};
+use crate::shell::ShellType;
 
 const HONOR_PS1_NAME: &str = "WARP_HONOR_PS1";
 const PROMPT_NODE_VERSION_ENABLED_NAME: &str = "WARP_PROMPT_NODE_VERSION_ENABLED";
@@ -27,6 +27,7 @@ const SSH_REUSE_CONTROL_MASTER_NAME: &str = "WARP_SSH_REUSE_CONTROL_MASTER";
 const SHELL_DEBUG_MODE_NAME: &str = "WARP_SHELL_DEBUG_MODE";
 const TERM_PROGRAM_NAME: &str = "TERM_PROGRAM";
 const IS_LOCAL_SESSION_NAME: &str = "WARP_IS_LOCAL_SHELL_SESSION";
+const FIXTURE_PSREADLINE_HISTORY: &str = "WARP_ISH_FIXTURE_PSREADLINE_HISTORY";
 const SSH_SOCKET_DIR: &str = "SSH_SOCKET_DIR";
 const PATH_APPEND_NAME: &str = "WARP_PATH_APPEND";
 const WSLENV: &str = "WSLENV";
@@ -39,7 +40,7 @@ struct EnvEntry {
     value: OsString,
 }
 
-pub(super) fn get_shell_environment_variables(options: &PtyOptions) -> Vec<u16> {
+pub(super) fn get_shell_environment_variables(options: &PtyOptions) -> io::Result<Vec<u16>> {
     // We map based on lowercase keys to account for case-insensitivity of env vars on Windows.
     let mut env: BTreeMap<OsString, EnvEntry> = std::env::vars_os()
         .map(|(key, value)| {
@@ -135,16 +136,6 @@ pub(super) fn get_shell_environment_variables(options: &PtyOptions) -> Vec<u16> 
         },
     );
 
-    if FeatureFlag::HOANotifications.is_enabled() {
-        env.insert(
-            map_key(WARP_CLI_AGENT_PROTOCOL_VERSION_ENV.into()),
-            EnvEntry {
-                preferred_key: WARP_CLI_AGENT_PROTOCOL_VERSION_ENV.into(),
-                value: CLI_AGENT_PROTOCOL_VERSION.to_string().into(),
-            },
-        );
-    }
-
     let ssh_socket_dir = ssh_socket_dir();
     env.insert(
         map_key(SSH_SOCKET_DIR.into()),
@@ -196,7 +187,7 @@ pub(super) fn get_shell_environment_variables(options: &PtyOptions) -> Vec<u16> 
         _ => {}
     }
 
-    // Apply any caller-provided overrides last, so they win.
+    // Apply caller overrides before setting the reserved fixture marker.
     for (key, value) in &options.env_vars {
         env.insert(
             map_key(key.clone()),
@@ -207,7 +198,54 @@ pub(super) fn get_shell_environment_variables(options: &PtyOptions) -> Vec<u16> 
         );
     }
 
-    environment_block(env.into_iter())
+    let fixture_history = powershell_fixture_history_path(&options.shell_starter)?;
+    apply_powershell_fixture_history(&mut env, fixture_history);
+    Ok(environment_block(env.into_iter()))
+}
+
+fn powershell_fixture_history_path(shell_starter: &ShellStarter) -> io::Result<Option<PathBuf>> {
+    if !matches!(shell_starter, ShellStarter::Direct(starter) if starter.shell_type() == ShellType::PowerShell)
+        || ChannelState::windows_warp_ish_data_profile().is_none()
+    {
+        return Ok(None);
+    }
+
+    let config_directory = warp_home_config_dir()
+        .filter(|directory| directory.is_absolute())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "no absolute fixture config directory",
+            )
+        })?;
+    let history_directory = config_directory.join("psreadline");
+    std::fs::create_dir_all(&history_directory)?;
+    Ok(Some(history_directory.join("ConsoleHost_history.txt")))
+}
+
+fn apply_powershell_fixture_history(
+    env: &mut BTreeMap<OsString, EnvEntry>,
+    history: Option<PathBuf>,
+) {
+    let key = map_key(FIXTURE_PSREADLINE_HISTORY.into());
+    if let Some(history) = history {
+        env.insert(
+            key,
+            EnvEntry {
+                preferred_key: FIXTURE_PSREADLINE_HISTORY.into(),
+                value: history.into_os_string(),
+            },
+        );
+        env.insert(
+            map_key(IS_LOCAL_SESSION_NAME.into()),
+            EnvEntry {
+                preferred_key: IS_LOCAL_SESSION_NAME.into(),
+                value: "1".into(),
+            },
+        );
+    } else {
+        env.remove(&key);
+    }
 }
 
 /// Build the WSLENV allowlist for variables that Windows should forward into WSL.
@@ -228,10 +266,6 @@ fn wsl_env_allowlist(include_initial_working_dir: bool) -> OsString {
         format!("{FOCUS_URL_ENV}/u"),
         format!("{PROMPT_NODE_VERSION_ENABLED_NAME}/u"),
     ];
-
-    if FeatureFlag::HOANotifications.is_enabled() {
-        entries.push(format!("{WARP_CLI_AGENT_PROTOCOL_VERSION_ENV}/u"));
-    }
 
     if include_initial_working_dir {
         entries.push(format!("{INITIAL_WORKING_DIR_NAME}/pu"));

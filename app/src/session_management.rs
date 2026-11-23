@@ -4,9 +4,8 @@ use chrono::NaiveDateTime;
 use warpui::{AppContext, Entity, EntityId, WindowId};
 
 use crate::context_chips::prompt_snapshot::PromptSnapshot;
-use crate::pane_group::{PaneGroup, PaneId};
+use crate::pane_group::PaneId;
 use crate::terminal::model::blockgrid::BlockGrid;
-use crate::terminal::shared_session::SharedSessionStatus;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::workspace::{PaneViewLocator, Workspace};
 
@@ -27,8 +26,6 @@ pub struct SessionNavigationData {
     last_focus_ts: Option<NaiveDateTime>,
     /// Whether or not the session is in a read-only state.
     is_read_only: bool,
-    /// The sharing status of the session.
-    shared_session_status: SharedSessionStatus,
 }
 
 impl SessionNavigationData {
@@ -49,8 +46,7 @@ pub struct SessionNavigationPromptElements {
     pub prompt_chip_snapshot: Option<PromptSnapshot>,
 }
 
-/// Represents the execution context of a session - what command or AI interaction
-/// was last run or is currently running.
+/// Represents the command that last ran or is currently running in a terminal.
 #[derive(Clone, Debug)]
 pub enum CommandContext {
     /// The last executed terminal command
@@ -58,16 +54,8 @@ pub enum CommandContext {
         last_run_command: String,
         mins_since_completion: Option<i64>,
     },
-    /// The last completed AI interaction
-    LastRunAIBlock {
-        prompt: String, // The prompt that initiated the AI interaction
-    },
     /// Currently running terminal command
     RunningCommand { running_command: String },
-    /// Currently running AI interaction
-    RunningAIBlock {
-        prompt: String, // The prompt for the active AI conversation
-    },
     /// No command context (e.g. just launched terminal)
     None,
 }
@@ -79,12 +67,8 @@ impl CommandContext {
             Self::LastRunCommand {
                 last_run_command, ..
             } => Some(format!("Last run command {}", last_run_command.clone())),
-            Self::LastRunAIBlock { prompt } => Some(format!("Last AI interaction: {prompt}")),
             Self::RunningCommand { running_command } => {
                 Some(format!("Currently running {running_command}"))
-            }
-            Self::RunningAIBlock { prompt } => {
-                Some(format!("Currently running AI interaction: {prompt}"))
             }
         }
     }
@@ -100,7 +84,6 @@ impl SessionNavigationData {
         last_focus_ts: Option<NaiveDateTime>,
         is_read_only: bool,
         window_id: WindowId,
-        shared_session_status: SharedSessionStatus,
     ) -> Self {
         SessionNavigationData {
             prompt,
@@ -110,7 +93,6 @@ impl SessionNavigationData {
             last_focus_ts,
             is_read_only,
             window_id,
-            shared_session_status,
         }
     }
 
@@ -142,10 +124,6 @@ impl SessionNavigationData {
         self.is_read_only
     }
 
-    pub fn shared_session_status(&self) -> SharedSessionStatus {
-        self.shared_session_status.clone()
-    }
-
     /// Fetches all sessions currently open in the app.
     pub fn all_sessions(app: &AppContext) -> impl Iterator<Item = SessionNavigationData> + '_ {
         app.window_ids()
@@ -161,7 +139,7 @@ impl SessionNavigationData {
 }
 
 pub struct RunningSessionSummary<'a> {
-    /// Does not include long running blocks for viewer of a shared session.
+    /// Terminal sessions with a running local command.
     pub long_running_cmds: Vec<&'a SessionNavigationData>,
 }
 
@@ -170,10 +148,7 @@ impl<'a> RunningSessionSummary<'a> {
         let long_running_cmds: Vec<_> = sessions
             .iter()
             .filter(|session| {
-                matches!(
-                    session.command_context(),
-                    CommandContext::RunningCommand { .. } | CommandContext::RunningAIBlock { .. }
-                ) && !session.shared_session_status().is_viewer()
+                matches!(&session.command_context, CommandContext::RunningCommand { .. })
                     && !session.is_read_only()
             })
             .collect();
@@ -214,22 +189,6 @@ pub enum SessionSource {
 
 impl Entity for SessionSource {
     type Event = ();
-}
-
-pub fn num_shared_sessions(ctx: &AppContext) -> usize {
-    let mut num_shared_sessions = 0;
-    let window_ids: Vec<WindowId> = ctx.window_ids().collect();
-    for window_id in window_ids {
-        let Some(pane_group_views) = ctx.views_of_type::<PaneGroup>(window_id) else {
-            continue;
-        };
-        for pane_group_view in pane_group_views {
-            pane_group_view.read(ctx, |pane_group, ctx| {
-                num_shared_sessions += pane_group.number_of_shared_sessions(ctx);
-            })
-        }
-    }
-    num_shared_sessions
 }
 
 /// Metadata for a single tab, used by the Ctrl+Tab MRU switcher.

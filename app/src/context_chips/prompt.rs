@@ -6,10 +6,7 @@ use warpui::{
 };
 
 pub use super::ContextChipKind;
-use crate::settings::{
-    AISettings, AISettingsChangedEvent, InputSettings, InputSettingsChangedEvent,
-    WarpPromptSeparator,
-};
+use crate::settings::{InputSettings, InputSettingsChangedEvent, WarpPromptSeparator};
 use crate::terminal::session_settings::{SessionSettings, SessionSettingsChangedEvent};
 
 #[cfg(test)]
@@ -61,7 +58,7 @@ impl PromptChip {
     }
 }
 
-/// Deserialize prompt chips, silently dropping any with unrecognized chip kinds.
+/// Deserialize prompt chips, silently dropping unrecognized or retired chip kinds.
 /// This ensures saved prompt configs remain intact when chip kinds are removed.
 fn deserialize_prompt_chips<'de, D>(deserializer: D) -> Result<Vec<PromptChip>, D::Error>
 where
@@ -71,6 +68,7 @@ where
     Ok(values
         .into_iter()
         .filter_map(|value| serde_json::from_value::<PromptChip>(value).ok())
+        .filter(|chip| !chip.chip().is_retired())
         .collect())
 }
 
@@ -163,8 +161,6 @@ impl Prompt {
     pub fn new(ctx: &mut ModelContext<Self>) -> Self {
         let session_settings = SessionSettings::handle(ctx);
         ctx.subscribe_to_model(&session_settings, Self::handle_session_settings_change);
-        let ai_settings = AISettings::handle(ctx);
-        ctx.subscribe_to_model(&ai_settings, Self::handle_ai_settings_change);
         let input_settings = InputSettings::handle(ctx);
         ctx.subscribe_to_model(&input_settings, Self::handle_input_settings_change);
 
@@ -290,27 +286,6 @@ impl Prompt {
             ctx.emit(PromptEvent::Changed);
         }
     }
-
-    /// Updates the in-memory prompt configuration to reflect an AI settings change.
-    fn handle_ai_settings_change(
-        &mut self,
-        _: ModelHandle<AISettings>,
-        event: &AISettingsChangedEvent,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        if let AISettingsChangedEvent::IsAnyAIEnabled { .. } = event {
-            log::debug!("Loading new prompt configuration");
-            self.config = Self::from_user_settings(ctx);
-            ctx.emit(PromptEvent::Changed);
-        }
-    }
-
-    /// Updates the in-memory prompt configuration to reflect an AI input model change.
-    fn handle_ai_input_model_change(&mut self, ctx: &mut ModelContext<Self>) {
-        log::debug!("Loading new prompt configuration due to AI input model change");
-        self.config = Self::from_user_settings(ctx);
-        ctx.emit(PromptEvent::Changed);
-    }
 }
 
 impl Entity for Prompt {
@@ -355,6 +330,7 @@ impl PromptConfiguration {
         Self {
             chips: chips
                 .into_iter()
+                .filter(|chip| !chip.is_retired())
                 .map(|chip| PromptChip::new(chip, Default::default()))
                 .collect(),
             did_separate_git_diff_stats: true,

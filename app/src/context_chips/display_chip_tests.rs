@@ -513,3 +513,113 @@ fn test_truncate_from_beginning_preserves_char_boundaries() {
         );
     }
 }
+
+#[test]
+fn legacy_prompt_layout_discards_only_retired_chip() {
+    use crate::context_chips::prompt::PromptConfiguration;
+
+    let config: PromptConfiguration = serde_json::from_value(serde_json::json!({
+        "chips": [
+            {"chip":"WorkingDirectory","config":{}},
+            {"chip":"AgentPlanAndTodoList","config":{}},
+            {"chip":"ShellGitBranch","config":{}}
+        ],
+        "same_line_prompt_enabled": false,
+        "did_separate_git_diff_stats": true,
+        "separator": "None"
+    }))
+    .unwrap();
+
+    assert_eq!(
+        config.chip_kinds(),
+        vec![
+            ContextChipKind::WorkingDirectory,
+            ContextChipKind::ShellGitBranch
+        ]
+    );
+    assert!(!crate::context_chips::available_chips().contains(&ContextChipKind::AgentPlanAndTodoList));
+    assert!(ContextChipKind::AgentPlanAndTodoList.to_chip().is_none());
+    assert!(!ContextChipKind::AgentPlanAndTodoList.should_render("", &Default::default()));
+    assert!(
+        !serde_json::to_string(&schemars::schema_for!(ContextChipKind))
+            .unwrap()
+            .contains("AgentPlanAndTodoList")
+    );
+    assert!(
+        !serde_json::to_string(&schemars::schema_for!(ContextChipKind))
+            .unwrap()
+            .contains("agent_plan_and_todo_list")
+    );
+}
+
+#[test]
+fn local_git_chip_toggles_branch_menu_and_opens_code_review() {
+    use super::{DisplayChip, DisplayChipAction, DisplayChipConfig, PromptDisplayChipEvent};
+    use crate::Appearance;
+    use crate::settings_view::keybindings::KeybindingChangedNotifier;
+    use crate::terminal::input::MenuPositioning;
+    use crate::terminal::model::session::Sessions;
+    use crate::terminal::model_events::ModelEventDispatcher;
+    use std::sync::Arc;
+    use warpui::platform::WindowStyle;
+    use warpui::{App, EntityId, TypedActionView};
+
+    App::test((), |mut app| async move {
+        crate::test_util::settings::initialize_settings_for_tests(&mut app);
+        app.add_singleton_model(|_| Appearance::mock());
+        app.add_singleton_model(|_| KeybindingChangedNotifier::new());
+        let sessions = app.add_model(|_| Sessions::new_for_test());
+        let (_terminal_events, receiver) = async_channel::unbounded();
+        let model_events = app.add_model(|ctx| ModelEventDispatcher::new(receiver, sessions, ctx));
+        let terminal_view_id = EntityId::new();
+        let (_window, chip) = app.add_window(WindowStyle::NotStealFocus, move |ctx| {
+            DisplayChip::new(
+                ctx,
+                crate::context_chips::ChipResult {
+                    kind: ContextChipKind::ShellGitBranch,
+                    value: Some(crate::context_chips::ChipValue::Text("main".into())),
+                    on_click_values: vec!["main".into()],
+                },
+                None,
+                DisplayChipConfig {
+                    terminal_view_id,
+                    menu_positioning_provider: Arc::new(MenuPositioning::BelowInputBox),
+                    session_context: None,
+                    current_repo_path: None,
+                    model_events,
+                },
+            )
+        });
+        let (sender, receiver) = async_channel::unbounded();
+        app.update(|ctx| {
+            ctx.subscribe_to_view(&chip, move |_, event, _| {
+                let value = match event {
+                    PromptDisplayChipEvent::ToggleMenu { open: true } => "opened",
+                    PromptDisplayChipEvent::ToggleMenu { open: false } => "closed",
+                    PromptDisplayChipEvent::OpenCodeReview => "review",
+                    _ => return,
+                };
+                sender.try_send(value).unwrap();
+            });
+        });
+
+        chip.update(&mut app, |chip, ctx| {
+            chip.handle_action(&DisplayChipAction::ToggleMenu, ctx)
+        });
+        assert_eq!(receiver.recv().await.unwrap(), "opened");
+        chip.read(&app, |chip, _| {
+            assert!(chip.display_chip_kind().has_open_menu())
+        });
+        chip.update(&mut app, |chip, ctx| {
+            chip.handle_action(&DisplayChipAction::ToggleMenu, ctx)
+        });
+        assert_eq!(receiver.recv().await.unwrap(), "closed");
+        chip.read(&app, |chip, _| {
+            assert!(!chip.display_chip_kind().has_open_menu())
+        });
+        chip.update(&mut app, |chip, ctx| {
+            chip.handle_action(&DisplayChipAction::ToggleCodeReview, ctx)
+        });
+        assert_eq!(receiver.recv().await.unwrap(), "review");
+    });
+}

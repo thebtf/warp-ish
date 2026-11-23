@@ -2,12 +2,8 @@
 //! src/integration.rs and src/bin/integration.rs in order to register them
 //! to be run.
 
-mod agent_mode;
-mod ai_assistant;
-mod ai_document;
 mod block_filtering;
 mod bootstrapping;
-mod cloud_shell_recovery;
 mod code_review;
 mod copy_current_path;
 mod ctrl_d;
@@ -19,17 +15,13 @@ mod keyboard_protocol;
 mod launch_configs;
 mod native_shell_completions;
 mod notebooks;
-mod orchestration_navigation;
 mod osc8_hyperlinks;
 mod pane_restoration;
 #[cfg(target_os = "macos")]
 mod preview_config_migration;
-mod remote_server;
-mod rich_input_ctrl_enter;
-mod rules;
+mod shell_input;
 mod secrets;
 mod session_restoration;
-mod settings_execution_profiles;
 mod settings_file_errors;
 mod settings_file_hot_reload;
 mod settings_file_migration;
@@ -40,7 +32,6 @@ mod subshell;
 mod sync_inputs;
 mod typeahead;
 mod video_recording;
-mod websockets;
 mod workflows;
 mod workspace;
 
@@ -50,13 +41,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
-pub use agent_mode::*;
-pub use ai_assistant::*;
-pub use ai_document::*;
 use anyhow::{Result, anyhow};
 pub use block_filtering::*;
 pub use bootstrapping::*;
-pub use cloud_shell_recovery::*;
 pub use code_review::*;
 pub use copy_current_path::*;
 pub use ctrl_d::*;
@@ -69,7 +56,6 @@ pub use keyboard_protocol::*;
 pub use launch_configs::*;
 pub use native_shell_completions::*;
 pub use notebooks::*;
-pub use orchestration_navigation::*;
 pub use osc8_hyperlinks::*;
 pub use pane_restoration::*;
 use parking_lot::Mutex;
@@ -77,14 +63,11 @@ use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::Vector2F;
 #[cfg(target_os = "macos")]
 pub use preview_config_migration::*;
-pub use remote_server::*;
-pub use rich_input_ctrl_enter::*;
-pub use rules::*;
+pub use shell_input::*;
 use rust_embed::RustEmbed;
 pub use secrets::*;
 pub use session_restoration::*;
 use settings::Setting as _;
-pub use settings_execution_profiles::*;
 pub use settings_file_errors::*;
 pub use settings_file_hot_reload::*;
 pub use settings_file_migration::*;
@@ -101,9 +84,7 @@ use version_compare::Cmp;
 pub use video_recording::*;
 use warp::appearance::Appearance;
 use warp::features::FeatureFlag;
-use warp::integration_testing::assertions::{
-    assert_binding_display_string, go_offline, go_online, join_a_workspace,
-};
+use warp::integration_testing::assertions::assert_binding_display_string;
 use warp::integration_testing::block::{
     BlockPosition, LinePosition, assert_block_visible, assert_bottom_of_block_approx_at,
     assert_num_blocks_in_model,
@@ -156,16 +137,13 @@ use warp::integration_testing::view_getters::{
     single_terminal_pane_view_for_tab, single_terminal_view, single_terminal_view_for_tab,
     workspace_view,
 };
-use warp::integration_testing::warp_drive::{
-    assert_is_left_panel_open, assert_warp_drive_is_closed, assert_warp_drive_is_open,
-};
+use warp::integration_testing::warp_drive::assert_is_left_panel_open;
 use warp::integration_testing::window::{
     add_and_save_window, add_window, add_window_and_check_bounds, close_window,
     save_active_window_id,
 };
 use warp::integration_testing::workspace::assert_tab_count;
 use warp::integration_testing::{self, view_of_type};
-use warp::pane_group::AGENT_MODE_PANE_DEFAULT_MINIMUM_WIDTH;
 use warp::settings::{
     CompletionsOpenWhileTyping, CtrlTabBehavior, INPUT_MODE, MonospaceFontSize,
     NativeShellCompletionsEnabled, TabBehavior,
@@ -194,7 +172,7 @@ use warp::workflows::categories::CategoriesView;
 use warp::workspace::{
     NEW_SESSION_MENU_BUTTON_POSITION_ID, NEW_TAB_BUTTON_POSITION_ID, Workspace, WorkspaceAction,
 };
-use warp::{AgentModeEntrypoint, cmd_or_ctrl_shift};
+use warp::cmd_or_ctrl_shift;
 use warpui_core::event::KeyState;
 use warpui_core::integration::{AssertionOutcome, StepData, TestStep};
 use warpui_core::keymap::{Keystroke, PerPlatformKeystroke, Trigger};
@@ -205,7 +183,6 @@ use warpui_core::windowing::WindowManager;
 use warpui_core::{
     AssetProvider, Event, SingletonEntity, UpdateView, ViewHandle, async_assert, async_assert_eq,
 };
-pub use websockets::*;
 pub use workflows::*;
 pub use workspace::*;
 
@@ -6737,9 +6714,8 @@ pub fn test_pane_group_state_clear_blocks() -> Builder {
         )
 }
 
-/// Create a small window and enough terminal panes inside it so that a new pane would normally have
-/// a narrow width. Check that the Agent Mode pane is wide enough regardless.
-pub fn test_agent_mode_pane_minimum_size() -> Builder {
+/// Checks that a new terminal window uses the configured rows and columns.
+pub fn test_new_window_respects_configured_size() -> Builder {
     const WINDOW_ID_KEY: &str = "small_window_id";
 
     new_builder()
@@ -6766,86 +6742,6 @@ pub fn test_agent_mode_pane_minimum_size() -> Builder {
                         AssertionOutcome::Success
                     },
                 ),
-        )
-        .with_step(
-            new_step_with_default_assertions("Create a new empty pane")
-                .with_keystrokes(&[cmd_or_ctrl_shift("d")]),
-        )
-        .with_step(
-            new_step_with_default_assertions("Create an Agent Mode pane and check its width")
-                .with_action(move |app, _, step_data_map| {
-                    let window_id = step_data_map
-                        .get(WINDOW_ID_KEY)
-                        .expect("Window ID for new window should exist");
-
-                    let workspace_view_id = workspace_view(app, *window_id).id();
-
-                    app.dispatch_typed_action(
-                        *window_id,
-                        &[workspace_view_id],
-                        &WorkspaceAction::NewPaneInAgentMode {
-                            entrypoint: AgentModeEntrypoint::TabBar,
-                            zero_state_prompt_suggestion_type: None,
-                        },
-                    );
-                })
-                .add_named_assertion_with_data_from_prior_step(
-                    "Check Agent Mode pane width",
-                    |app, _, step_data_map| {
-                        let window_id = step_data_map
-                            .get(WINDOW_ID_KEY)
-                            .expect("Window ID for new window should exist");
-
-                        let pane_group = pane_group_view(app, *window_id, 0);
-                        pane_group.read(app, |view, app| {
-                            let Some(agent_mode_pane) = view.terminal_view_at_pane_index(2, app)
-                            else {
-                                return AssertionOutcome::failure(
-                                    "no terminal pane at pane_index 2".to_owned(),
-                                );
-                            };
-
-                            let pane_width =
-                                agent_mode_pane.as_ref(app).size_info().pane_size_px().x();
-
-                            // Approx equality to handle pane borders, etc.
-                            assert_approx_eq!(
-                                f32,
-                                pane_width - AGENT_MODE_PANE_DEFAULT_MINIMUM_WIDTH,
-                                0.,
-                                epsilon = 4.
-                            );
-
-                            AssertionOutcome::Success
-                        })
-                    },
-                ),
-        )
-}
-
-// cheating a little bit in this test; it's hard to tell if the create folder dialog is open from
-// the workspace view, but we DO force warp drive open to show the dialog, so we can look for that
-pub fn test_create_folder_from_command_palette() -> Builder {
-    new_builder()
-        .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
-        .with_step(join_a_workspace())
-        .with_step(go_offline())
-        .with_steps(
-            open_command_palette_and_run_action("Create a New Team Folder")
-                .add_assertion(assert_warp_drive_is_closed()),
-        )
-        .with_steps(
-            open_command_palette_and_run_action("Create a New Personal Folder")
-                .add_assertion(assert_warp_drive_is_closed()),
-        )
-        .with_step(go_online())
-        .with_steps(
-            open_command_palette_and_run_action("Create a New Team Folder")
-                .add_assertion(assert_warp_drive_is_open()),
-        )
-        .with_steps(
-            open_command_palette_and_run_action("Create a New Personal Folder")
-                .add_assertion(assert_warp_drive_is_open()),
         )
 }
 

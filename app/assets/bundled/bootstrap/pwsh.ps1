@@ -1085,16 +1085,28 @@ $null = New-Module -Name Warp-Module -ScriptBlock {
 # inside Warp-Module) in order to obey the expected scoping in PowerShell's typical startup process.
 . {
     $rcStartTime = Get-EpochTime
-    # Source the user's RC files
-    # https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_profiles?view=powershell-7.4#profile-types-and-locations
-    # https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_profiles?view=powershell-7.4#the-profile-variable
-    foreach ($file in @($PROFILE.AllUsersAllHosts, $PROFILE.AllUsersCurrentHost, $PROFILE.CurrentUserAllHosts, $PROFILE.CurrentUserCurrentHost)) {
-        if ([System.IO.File]::Exists($file)) {
-            try {
-                . $file
-            } catch {
-                Write-Host -ForegroundColor Red $_.InvocationInfo.PositionMessage
-                Write-Host -ForegroundColor DarkRed $_.Exception
+    if (($PSEdition -eq 'Desktop' -or $IsWindows) -and $env:WARP_IS_LOCAL_SHELL_SESSION -eq '1' -and $env:WARP_ISH_FIXTURE_PSREADLINE_HISTORY) {
+        # The native launcher reserves this marker for a dedicated acceptance profile.
+        try {
+            PSReadLine\Set-PSReadLineOption -HistorySavePath $env:WARP_ISH_FIXTURE_PSREADLINE_HISTORY -ErrorAction Stop
+        } catch {
+            Write-Host -ForegroundColor Red 'Could not configure isolated PowerShell history.'
+            $Host.SetShouldExit(1)
+            exit 1
+        }
+        Remove-Item -LiteralPath env:WARP_ISH_FIXTURE_PSREADLINE_HISTORY
+    } else {
+        # Source the user's RC files
+        # https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_profiles?view=powershell-7.4#profile-types-and-locations
+        # https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_profiles?view=powershell-7.4#the-profile-variable
+        foreach ($file in @($PROFILE.AllUsersAllHosts, $PROFILE.AllUsersCurrentHost, $PROFILE.CurrentUserAllHosts, $PROFILE.CurrentUserCurrentHost)) {
+            if ([System.IO.File]::Exists($file)) {
+                try {
+                    . $file
+                } catch {
+                    Write-Host -ForegroundColor Red $_.InvocationInfo.PositionMessage
+                    Write-Host -ForegroundColor DarkRed $_.Exception
+                }
             }
         }
     }

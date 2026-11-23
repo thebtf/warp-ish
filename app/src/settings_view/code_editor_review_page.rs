@@ -19,7 +19,7 @@ use super::settings_page::{
     render_body_item, render_dropdown_item,
 };
 use super::{
-    LocalOnlyIconState, SettingsAction, SettingsSection, ToggleSettingActionPair, ToggleState,
+    SettingsAction, SettingsSection, ToggleSettingActionPair, ToggleState,
     flags,
 };
 use crate::appearance::Appearance;
@@ -27,9 +27,13 @@ use crate::settings::{AppEditorSettings, CodeEditorLineNumberMode, CodeSettings}
 use crate::terminal::general_settings::GeneralSettings;
 use crate::view_components::{Dropdown, DropdownItem};
 use crate::workspace::tab_settings::TabSettings;
-use crate::{TelemetryEvent, send_telemetry_from_ctx};
 
 const PAGE_TITLE: &str = "Editor and Code Review";
+
+#[cfg(feature = "integration_tests")]
+pub fn editor_auto_save_widget_id() -> &'static str {
+    AutoSaveToggleWidget::static_widget_id()
+}
 
 pub struct EditorAndCodeReviewPageView {
     page: PageType<Self>,
@@ -217,17 +221,6 @@ impl TypedActionView for EditorAndCodeReviewPageView {
                             .toggle_and_save_value(ctx)
                     );
                 });
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::FeaturesPageAction {
-                        action: "ToggleAutoOpenCodeReviewPane".to_string(),
-                        value: format!(
-                            "{}",
-                            *GeneralSettings::as_ref(ctx)
-                                .auto_open_code_review_pane_on_first_agent_change
-                        )
-                    },
-                    ctx
-                );
                 ctx.notify();
             }
             EditorAndCodeReviewPageAction::SetCodeEditorLineNumberMode(mode) => {
@@ -239,13 +232,6 @@ impl TypedActionView for EditorAndCodeReviewPageView {
                     );
                     ctx.notify();
                 });
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::FeaturesPageAction {
-                        action: "SetCodeEditorLineNumberMode".to_string(),
-                        value: format!("{mode:?}"),
-                    },
-                    ctx
-                );
             }
         }
     }
@@ -386,7 +372,6 @@ impl SettingsWidget for AutoOpenCodeReviewPaneCodeWidget {
         render_body_item::<EditorAndCodeReviewPageAction>(
             "Auto open code review panel".into(),
             None,
-            LocalOnlyIconState::Hidden,
             ToggleState::Enabled,
             appearance,
             appearance
@@ -428,7 +413,6 @@ impl SettingsWidget for CodeReviewPanelToggleWidget {
         render_body_item::<EditorAndCodeReviewPageAction>(
             "Show code review button".into(),
             None,
-            LocalOnlyIconState::Hidden,
             ToggleState::Enabled,
             appearance,
             appearance
@@ -471,7 +455,6 @@ impl SettingsWidget for CodeReviewDiffStatsToggleWidget {
         render_body_item::<EditorAndCodeReviewPageAction>(
             "Show diff stats on code review button".into(),
             None,
-            LocalOnlyIconState::Hidden,
             ToggleState::Enabled,
             appearance,
             appearance
@@ -513,7 +496,6 @@ impl SettingsWidget for ProjectExplorerToggleWidget {
         render_body_item::<EditorAndCodeReviewPageAction>(
             "Project explorer".into(),
             None,
-            LocalOnlyIconState::Hidden,
             ToggleState::Enabled,
             appearance,
             appearance
@@ -556,7 +538,6 @@ impl SettingsWidget for GlobalSearchToggleWidget {
         render_body_item::<EditorAndCodeReviewPageAction>(
             "Global file search".into(),
             None,
-            LocalOnlyIconState::Hidden,
             ToggleState::Enabled,
             appearance,
             appearance
@@ -596,7 +577,6 @@ impl SettingsWidget for ShowHiddenFilesToggleWidget {
         render_body_item::<EditorAndCodeReviewPageAction>(
             "Show hidden files in project explorer".into(),
             None,
-            LocalOnlyIconState::Hidden,
             ToggleState::Enabled,
             appearance,
             appearance
@@ -638,7 +618,6 @@ impl SettingsWidget for FormatOnSaveToggleWidget {
         render_body_item::<EditorAndCodeReviewPageAction>(
             "Format on save (requires an active language server)".into(),
             None,
-            LocalOnlyIconState::Hidden,
             ToggleState::Enabled,
             appearance,
             appearance
@@ -681,7 +660,6 @@ impl SettingsWidget for AutoSaveToggleWidget {
         render_body_item::<EditorAndCodeReviewPageAction>(
             "Auto save".into(),
             None,
-            LocalOnlyIconState::Hidden,
             ToggleState::Enabled,
             appearance,
             appearance
@@ -722,7 +700,6 @@ impl SettingsWidget for CodeEditorLineNumberModeWidget {
             "Code editor line numbers:",
             None,
             None,
-            LocalOnlyIconState::Hidden,
             None,
             &view.code_editor_line_number_mode_dropdown,
         )

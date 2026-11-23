@@ -5,7 +5,7 @@ pub use model::terminal_model::TerminalModel;
 use ordered_float::Float;
 mod package_installers;
 pub use history::{
-    History, HistoryEntry, HistoryEvent, LinkedWorkflowData, ShellHost, UpArrowHistoryConfig,
+    History, HistoryEntry, HistoryEvent, LinkedWorkflowData, ShellHost,
 };
 pub use view::{Event, TerminalView};
 pub use warp_terminal::shell::{self, ShellLaunchData};
@@ -28,12 +28,8 @@ pub mod block_list_viewport;
 pub mod blockgrid_element;
 mod blockgrid_renderer;
 mod bootstrap;
-mod buy_credits_banner;
 pub mod color;
 mod command_corrections_denylist;
-pub mod conversation_restoration;
-pub mod dynamic_enum_suggestions;
-pub mod enable_auto_reload_modal;
 pub mod event;
 pub mod event_listener;
 pub mod find;
@@ -42,6 +38,8 @@ pub mod grid_renderer;
 pub mod grid_size_util;
 pub mod history;
 pub mod input;
+pub mod input_config;
+pub mod input_type;
 pub mod keys;
 pub mod keys_settings;
 pub mod ligature_settings;
@@ -56,7 +54,6 @@ pub mod mock_terminal_manager;
 pub mod model;
 pub mod model_events;
 pub mod platform;
-pub mod profile_model_selector;
 pub mod prompt;
 pub mod prompt_render_helper;
 pub mod recorder;
@@ -67,11 +64,8 @@ pub mod safe_mode_settings;
 mod secret_regex_updater;
 pub mod session_settings;
 pub mod settings;
-mod share_block_modal;
-pub mod shared_session;
 mod shell_launch_state;
 pub mod shell_recovery;
-pub mod universal_developer_input;
 
 pub mod ssh;
 pub mod terminal_manager;
@@ -80,26 +74,17 @@ pub mod view;
 pub mod warpify;
 mod waterfall_gap_element;
 mod writeable_pty;
-#[cfg(feature = "tui")]
-pub use writeable_pty::{PtyIntent, PtyIntentEvent, TerminalSurface};
+
 #[cfg(windows)]
 pub mod wsl;
-
-pub mod cli_agent;
-pub use cli_agent::CLIAgent;
-pub(crate) mod cli_agent_sessions;
 
 pub use block_list_settings::*;
 pub use mock_terminal_manager::MockTerminalManager;
 use model_events::{ModelEvent, ModelEventDispatcher};
 pub use secret_regex_updater::CustomSecretRegexUpdater;
-pub use share_block_modal::{ShareBlockModal, ShareBlockModalEvent, ShareBlockType};
 pub use shell_launch_state::ShellLaunchState;
 pub use terminal_manager::TerminalManager;
-pub use view::{
-    CANCEL_COMMAND_KEYBINDING, TOGGLE_AUTOEXECUTE_MODE_KEYBINDING,
-    TOGGLE_HIDE_CLI_RESPONSES_KEYBINDING, TOGGLE_QUEUE_NEXT_PROMPT_KEYBINDING,
-};
+pub use view::CANCEL_COMMAND_KEYBINDING;
 
 use crate::settings::SelectionSettings;
 /// The broadcast channel capacity for PTY reads.
@@ -113,7 +98,6 @@ use crate::settings::SelectionSettings;
 pub const PTY_READS_BROADCAST_CHANNEL_SIZE: usize = 1024;
 
 pub fn init(app: &mut AppContext) {
-    share_block_modal::init(app);
     view::init(app);
 }
 

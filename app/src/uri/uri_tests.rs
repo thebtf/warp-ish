@@ -1,8 +1,52 @@
-use self::parse_url_paths::{WarpWebLink, get_item_data_from_warp_link};
 use super::*;
 use crate::ChannelState;
 use crate::launch_configs::launch_config::make_mock_single_window_launch_config;
-use crate::linear::{LinearAction, LinearIssueWork};
+
+#[test]
+fn warp_ish_custom_uris_allow_local_intents() {
+    for (intent, allowed) in [
+        ("action/new_tab", true),
+        ("action/new_window", true),
+        ("action/open_file_editor", true),
+        ("action/docker/open_subshell", true),
+        ("action/open-repo", false),
+        ("launch/my-project", true),
+        ("session/my-pane", true),
+        ("settings?q=terminal", true),
+        ("settings/appearance", true),
+        ("auth/desktop_redirect", false),
+        ("shared_session/my-session", false),
+        ("drive/my-object", false),
+        ("action/new_cloud_agent_conversation", false),
+        ("action/new_agent_conversation", false),
+        ("settings?widget=agent", false),
+        ("settings/mcp?autoinstall=example", false),
+        ("settings/environments", false),
+    ] {
+        let url = Url::parse(&format!("warp-ish://{intent}")).unwrap();
+        let is_allowed =
+            UriHost::from_str(url.host_str().unwrap()).is_ok_and(|host| is_local_uri(&host, &url));
+        assert_eq!(is_allowed, allowed, "{intent}");
+    }
+
+    let terminal_pane = |pane_mode| PaneTemplateType::PaneTemplate {
+        cwd: PathBuf::from("."),
+        commands: Vec::new(),
+        is_focused: None,
+        pane_mode,
+        shell: None,
+    };
+    assert!(is_local_pane_template(&terminal_pane(PaneMode::Terminal)));
+    assert!(!is_local_pane_template(
+        &PaneTemplateType::PaneBranchTemplate {
+            split_direction: crate::launch_configs::launch_config::SplitDirection::Horizontal,
+            panes: vec![
+                terminal_pane(PaneMode::Terminal),
+                terminal_pane(PaneMode::Cloud)
+            ],
+        }
+    ));
+}
 
 #[test]
 fn test_find_matching_config() {
@@ -201,78 +245,26 @@ fn test_remove_extension() {
 }
 
 #[test]
-fn test_warp_web_link_notebook() {
-    assert_eq!(
-        get_item_data_from_warp_link(
-            &Url::parse(&format!(
-                "{}/drive/notebook/Performance-Analysis-LkDlnAe34vfYD2JXsAkssc?focused_folder_id=test_uid00000000000123&invitee_email=test@example.com",
-                ChannelState::server_root_url()
-            ))
-            .unwrap()
-        ),
-        Some(WarpWebLink::DriveObject(Box::new(OpenWarpDriveObjectArgs {
-            object_type: ObjectType::Notebook,
-server_id: ServerId::from_string_lossy("LkDlnAe34vfYD2JXsAkssc"),
-            settings: OpenWarpDriveObjectSettings {
-                focused_folder_id: Some(ServerId::from(123)),
-                invitee_email: Some(String::from("test@example.com")),
-            },
-        })))
-    );
+fn web_session_link_preserves_query_in_native_intent() {
+    let id = "317d0686-7a0b-4b67-806b-aaa3e9df501b";
+    let query = "pwd=6f727249-af9f-4025-a240-59df40a4c64b&preview=true";
+    let server_root = ChannelState::server_root_url();
+    let url_scheme = ChannelState::url_scheme();
+    let url = Url::parse(&format!("{server_root}/session/{id}?{query}")).unwrap();
+    let expected = Url::parse(&format!("{url_scheme}://shared_session/{id}?{query}")).unwrap();
+    assert!(matches!(
+        web_intent_parser::WebIntent::try_from_url(&url),
+        Ok(web_intent_parser::WebIntent::SessionView(intent)) if intent == expected
+    ));
 }
 
 #[test]
-fn test_warp_web_link_session() {
-    assert_eq!(
-        get_item_data_from_warp_link(
-            &Url::parse(&format!(
-                "{}/session/317d0686-7a0b-4b67-806b-aaa3e9df501b?
-                pwd=6f727249-af9f-4025-a240-59df40a4c64b",
-                ChannelState::server_root_url()
-            ))
-            .unwrap()
-        ),
-        Some(WarpWebLink::Session)
-    );
-}
-
-#[test]
-fn test_warp_web_link_workflow() {
-    assert_eq!(
-        get_item_data_from_warp_link(
-            &Url::parse(&format!(
-                "{}/drive/workflow/Remove-all-stopped-docker-container-image-and-volumes-ZCJSkai2gpwTqpBFs5HOfZ",
-                ChannelState::server_root_url()
-            ))
-            .unwrap()
-        ),
-        Some(WarpWebLink::DriveObject(Box::new(OpenWarpDriveObjectArgs {
-            object_type: ObjectType::Workflow,
-server_id: ServerId::from_string_lossy("ZCJSkai2gpwTqpBFs5HOfZ"),
-            settings: OpenWarpDriveObjectSettings::default(),
-        })))
-    );
-}
-
-#[test]
-fn test_warp_web_link_failure() {
-    assert_eq!(
-        get_item_data_from_warp_link(&Url::parse("https://google.com").unwrap()),
-        None
-    );
-}
-#[test]
-fn test_app_web_link_rewrites_to_new_cloud_agent_conversation() {
-    let url = Url::parse(&format!("{}/app", ChannelState::server_root_url())).unwrap();
-    let intent = web_intent_parser::maybe_rewrite_web_url_to_intent(&url).unwrap();
-
-    assert_eq!(
-        intent.as_str(),
-        format!(
-            "{}://action/new_cloud_agent_conversation?source=web_home",
-            ChannelState::url_scheme()
-        )
-    );
+fn app_and_retired_drive_web_links_have_no_native_intent() {
+    let server_root = ChannelState::server_root_url();
+    for path in ["app", "drive/notebook/Some-notebook-id"] {
+        let url = Url::parse(&format!("{server_root}/{path}")).unwrap();
+        assert!(web_intent_parser::WebIntent::try_from_url(&url).is_err());
+    }
 }
 
 // `resolve_browser_url` is what both browser-URL write paths
@@ -372,52 +364,6 @@ fn resolve_browser_url_returns_none_when_neither_url_is_known() {
     let resolved = browser_url_resolution::resolve_browser_url(None, None, false);
 
     assert_eq!(resolved, None);
-}
-
-#[test]
-fn test_action_create_environment_parse() {
-    let url = Url::parse(&format!(
-        "{}://action/create_environment?repo=foo&repo=bar",
-        ChannelState::url_scheme()
-    ))
-    .unwrap();
-
-    let action = Action::parse(&url).unwrap();
-    match action {
-        Action::CreateEnvironment { repos } => {
-            assert_eq!(repos, vec!["foo".to_owned(), "bar".to_owned()]);
-        }
-        _ => panic!("unexpected action: {action:?}"),
-    }
-}
-
-#[test]
-fn test_action_focus_cloud_mode_parse() {
-    let url = Url::parse(&format!(
-        "{}://action/focus_cloud_mode",
-        ChannelState::url_scheme()
-    ))
-    .unwrap();
-
-    let action = Action::parse(&url).unwrap();
-    assert!(matches!(action, Action::FocusCloudMode));
-}
-
-#[test]
-fn test_action_create_environment_parse_no_repos() {
-    let url = Url::parse(&format!(
-        "{}://action/create_environment",
-        ChannelState::url_scheme()
-    ))
-    .unwrap();
-
-    let action = Action::parse(&url).unwrap();
-    match action {
-        Action::CreateEnvironment { repos } => {
-            assert!(repos.is_empty());
-        }
-        _ => panic!("unexpected action: {action:?}"),
-    }
 }
 
 fn open_file_editor_test_path(file_name: &str) -> (String, PathBuf) {
@@ -609,146 +555,32 @@ fn test_action_open_file_editor_parse_rejects_invalid_line_or_column() {
 }
 
 #[test]
-fn test_action_cloud_agent_setup_parse() {
-    let url = Url::parse(&format!(
-        "{}://action/cloud_agent_setup",
-        ChannelState::url_scheme()
-    ))
-    .unwrap();
-
-    let action = Action::parse(&url).unwrap();
-    assert!(matches!(action, Action::CloudAgentSetup));
-}
-#[test]
-fn test_action_auto_handoff_to_cloud_parse_default_trigger() {
-    let url = Url::parse(&format!(
-        "{}://action/auto_handoff_to_cloud",
-        ChannelState::url_scheme()
-    ))
-    .unwrap();
-
-    let action = Action::parse(&url).unwrap();
-    assert!(matches!(
-        action,
-        Action::AutoHandoffToCloud {
-            trigger: AutoCloudHandoffTrigger::Uri,
-        }
-    ));
+fn test_open_repo_action_parses_for_the_existing_folder_picker() {
+    let url = Url::parse("warp://action/open-repo").unwrap();
+    assert!(matches!(Action::parse(&url), Ok(Action::OpenRepo)));
 }
 
 #[test]
-fn test_action_auto_handoff_to_cloud_parse_alias_path() {
-    let url = Url::parse(&format!(
-        "{}://action/auto-handoff-to-cloud",
-        ChannelState::url_scheme()
-    ))
-    .unwrap();
-
-    let action = Action::parse(&url).unwrap();
-    assert!(matches!(
-        action,
-        Action::AutoHandoffToCloud {
-            trigger: AutoCloudHandoffTrigger::Uri,
-        }
-    ));
-}
-
-#[test]
-fn test_action_auto_handoff_to_cloud_parse_sleep_trigger() {
-    let url = Url::parse(&format!(
-        "{}://action/auto_handoff_to_cloud?trigger=sleep",
-        ChannelState::url_scheme()
-    ))
-    .unwrap();
-
-    let action = Action::parse(&url).unwrap();
-    assert!(matches!(
-        action,
-        Action::AutoHandoffToCloud {
-            trigger: AutoCloudHandoffTrigger::MacOsSleep,
-        }
-    ));
-}
-
-#[test]
-fn test_action_new_cloud_agent_conversation_parse() {
-    let url = Url::parse(&format!(
-        "{}://action/new_cloud_agent_conversation",
-        ChannelState::url_scheme()
-    ))
-    .unwrap();
-
-    let action = Action::parse(&url).unwrap();
-    assert!(matches!(action, Action::NewCloudAgentConversation));
-}
-
-#[test]
-fn test_action_new_agent_conversation_parse() {
-    let url = Url::parse(&format!(
-        "{}://action/new_agent_conversation",
-        ChannelState::url_scheme()
-    ))
-    .unwrap();
-
-    let action = Action::parse(&url).unwrap();
-    assert!(matches!(action, Action::NewAgentConversation));
-}
-
-#[test]
-fn test_validate_custom_uri_linear() {
-    let url = Url::parse(&format!(
-        "{}://linear/work?prompt=hello",
-        ChannelState::url_scheme()
-    ))
-    .unwrap();
-    let host = validate_custom_uri(&url).unwrap();
-    assert!(matches!(host, UriHost::Linear));
-}
-
-#[test]
-fn test_linear_action_parse_work() {
-    let url = Url::parse(&format!(
-        "{}://linear/work?prompt=hello",
-        ChannelState::url_scheme()
-    ))
-    .unwrap();
-    let action = LinearAction::parse(&url).unwrap();
-    assert_eq!(action, LinearAction::WorkOnIssue);
-}
-
-#[test]
-fn test_linear_action_parse_unknown_path() {
-    let url = Url::parse(&format!("{}://linear/unknown", ChannelState::url_scheme())).unwrap();
-    assert!(LinearAction::parse(&url).is_err());
-}
-
-#[test]
-fn test_linear_issue_work_with_prompt() {
-    let url = Url::parse(&format!(
-        "{}://linear/work?prompt=fix+the+bug",
-        ChannelState::url_scheme()
-    ))
-    .unwrap();
-    let args = LinearIssueWork::from_url(&url);
-    assert_eq!(args.prompt.as_deref(), Some("fix the bug"));
-}
-
-#[test]
-fn test_linear_issue_work_without_prompt() {
-    let url = Url::parse(&format!("{}://linear/work", ChannelState::url_scheme())).unwrap();
-    let args = LinearIssueWork::from_url(&url);
-    assert!(args.prompt.is_none());
-}
-
-#[test]
-fn test_linear_issue_work_empty_prompt() {
-    let url = Url::parse(&format!(
-        "{}://linear/work?prompt=",
-        ChannelState::url_scheme()
-    ))
-    .unwrap();
-    let args = LinearIssueWork::from_url(&url);
-    assert!(args.prompt.is_none());
+fn retired_platform_links_are_rejected_by_validation() {
+    for route in [
+        "auth/desktop_redirect",
+        "team/settings",
+        "drive/notebook?id=abc",
+        "mcp/desktop_redirect",
+        "codex/desktop_redirect",
+        "linear/work?prompt=hello",
+        "settings/teams",
+        "settings/environments",
+        "settings/mcp?autoinstall=example",
+        "settings/billing_and_usage",
+        "settings/platform",
+        "settings/warp_agent",
+        "settings?widget=custom_router",
+        "settings?widget=cli_agents",
+    ] {
+        let url = Url::parse(&format!("{}://{route}", ChannelState::url_scheme())).unwrap();
+        assert!(validate_custom_uri(&url).is_err(), "{route}");
+    }
 }
 
 // -- handle_incoming_uri validation errors -----------------------------------
@@ -778,9 +610,9 @@ fn validate_custom_uri_errors_do_not_leak_query_string() {
     assert!(!msg.contains("refresh_token"), "{msg}");
     assert!(!msg.contains("LEAKED"), "{msg}");
 
-    // Unexpected path for a host that doesn't allow arbitrary paths.
+    // Unexpected path for the Home host.
     let url = Url::parse(&format!(
-        "{}://auth/not_the_redirect?refresh_token=LEAKED",
+        "{}://home/not_the_redirect?refresh_token=LEAKED",
         ChannelState::url_scheme()
     ))
     .unwrap();
@@ -833,23 +665,16 @@ fn test_parse_tab_path_bare_tilde() {
 // -- warp://settings deeplink parsing ----------------------------------------
 
 #[test]
-fn test_settings_widget_deeplink_target() {
+fn test_local_settings_widget_target() {
     assert_eq!(
-        settings_widget_deeplink_target("global_hotkey").map(|(section, _)| section),
+        local_settings_widget_target("global_hotkey").map(|(section, _)| section),
         Some(SettingsSection::Features),
     );
-    assert_eq!(
-        settings_widget_deeplink_target("custom_router").map(|(section, _)| section),
-        Some(SettingsSection::WarpAgent),
-    );
-    #[cfg(not(target_family = "wasm"))]
-    assert_eq!(
-        settings_widget_deeplink_target("cli_agents").map(|(section, _)| section),
-        Some(SettingsSection::ThirdPartyCLIAgents),
-    );
+    assert!(local_settings_widget_target("custom_router").is_none());
+    assert!(local_settings_widget_target("cli_agents").is_none());
     // Unknown / empty slugs are not linkable (allowlist only).
-    assert!(settings_widget_deeplink_target("not_a_widget").is_none());
-    assert!(settings_widget_deeplink_target("").is_none());
+    assert!(local_settings_widget_target("not_a_widget").is_none());
+    assert!(local_settings_widget_target("").is_none());
 }
 
 #[test]
@@ -858,57 +683,7 @@ fn test_settings_section_for_simple_subpage() {
         settings_section_for_simple_subpage("appearance"),
         Some(SettingsSection::Appearance),
     );
-    assert_eq!(
-        settings_section_for_simple_subpage("billing_and_usage"),
-        Some(SettingsSection::BillingAndUsage),
-    );
-    assert_eq!(
-        settings_section_for_simple_subpage("platform"),
-        Some(SettingsSection::WarpCloudAgentAPIKeys),
-    );
-    assert_eq!(
-        settings_section_for_simple_subpage("warp_agent"),
-        Some(SettingsSection::WarpAgent),
-    );
     assert!(settings_section_for_simple_subpage("not_a_subpage").is_none());
-}
-
-// -- post-checkout desktop hand-off ------------------------------------------
-
-/// Regression coverage for REV-1952: the confirmation page reports a completed
-/// purchase by riding `checkoutSuccessful=true` on the ordinary desktop
-/// redirect, so onboarding can advance without opening a settings page.
-#[test]
-fn test_url_reports_checkout_success() {
-    let scheme = ChannelState::url_scheme();
-
-    let with_flag = Url::parse(&format!(
-        "{scheme}://auth/desktop_redirect?refresh_token=abc&checkoutSuccessful=true"
-    ))
-    .unwrap();
-    assert!(url_reports_checkout_success(&with_flag));
-
-    let plain_redirect = Url::parse(&format!(
-        "{scheme}://auth/desktop_redirect?refresh_token=abc"
-    ))
-    .unwrap();
-    assert!(!url_reports_checkout_success(&plain_redirect));
-
-    // Only an explicit `true` counts, so an abandoned checkout that reports
-    // failure never advances onboarding.
-    let failed = Url::parse(&format!(
-        "{scheme}://auth/desktop_redirect?checkoutSuccessful=false"
-    ))
-    .unwrap();
-    assert!(!url_reports_checkout_success(&failed));
-
-    // The flag is not tied to the auth host: an older confirmation page can
-    // still send it on the settings deeplink.
-    let on_settings = Url::parse(&format!(
-        "{scheme}://settings/billing_and_usage?checkoutSuccessful=true"
-    ))
-    .unwrap();
-    assert!(url_reports_checkout_success(&on_settings));
 }
 
 // Regression coverage for issue #9005: shell scripts opened via `file://` should run,
@@ -1115,4 +890,19 @@ fn test_decode_uuid_hex_rejects_wrong_length() {
 #[test]
 fn test_decode_uuid_hex_rejects_invalid_chars() {
     assert!(super::decode_uuid_hex("ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ").is_none());
+}
+
+#[test]
+fn retired_cloud_actions_are_rejected_by_action_parser() {
+    for path in [
+        "new_cloud_agent_conversation",
+        "new_agent_conversation",
+        "create_environment?repo=foo&repo=bar",
+        "focus_cloud_mode",
+        "auto_handoff_to_cloud",
+        "auto-handoff-to-cloud",
+    ] {
+        let url = Url::parse(&format!("warp://action/{path}")).unwrap();
+        assert!(Action::parse(&url).is_err(), "{path}");
+    }
 }

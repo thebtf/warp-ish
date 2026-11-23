@@ -134,6 +134,7 @@ fn surface_list_result_serializes_stable_availability_shape() {
 fn malformed_and_removed_action_names_are_not_deserialized() {
     for action in [
         "tab.create.extra",
+        "surface.agent_management.open",
         "auth.status",
         "auth.login",
         "block.list",
@@ -148,6 +149,8 @@ fn malformed_and_removed_action_names_are_not_deserialized() {
         "drive.list",
         "drive.inspect",
         "drive.open",
+        "surface.warp_drive.open",
+        "surface.warp_drive.toggle",
         "drive.notebook.open",
         "drive.env_var_collection.open",
         "drive.object.share.open",
@@ -163,8 +166,8 @@ fn malformed_and_removed_action_names_are_not_deserialized() {
 }
 
 #[test]
-fn catalog_has_exactly_84_retained_actions() {
-    assert_eq!(ActionKind::ALL.len(), 84);
+fn catalog_has_exactly_79_retained_actions() {
+    assert_eq!(ActionKind::ALL.len(), 79);
 }
 
 #[test]
@@ -190,18 +193,12 @@ fn direct_surface_actions_have_stable_names() {
         ActionKind::SurfaceGlobalSearchOpen.as_str(),
         "surface.global_search.open"
     );
-    assert_eq!(
-        ActionKind::SurfaceConversationListOpen.as_str(),
-        "surface.conversation_list.open"
-    );
+    assert!(serde_json::from_str::<ActionKind>(r#""surface.conversation_list.open""#).is_err());
     assert_eq!(
         ActionKind::SurfaceVerticalTabsOpen.as_str(),
         "surface.vertical_tabs.open"
     );
-    assert_eq!(
-        ActionKind::SurfaceAgentManagementOpen.as_str(),
-        "surface.agent_management.open"
-    );
+
 }
 
 #[test]

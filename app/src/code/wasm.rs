@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use ai::diff_validation::DiffDelta;
 use warp_util::path::LineAndColumnArg;
 use warpui::elements::{DraggableState, Empty, MouseStateHandle};
 use warpui::{
@@ -8,6 +7,7 @@ use warpui::{
 };
 
 use super::buffer_location::LocalOrRemotePath;
+use super::editor::DiffDelta;
 use super::editor_management::CodeSource;
 use super::local_code_editor::LocalCodeEditorView;
 use crate::pane_group::focus_state::PaneFocusHandle;
@@ -46,9 +46,6 @@ pub enum CodeViewEvent {
     FileOpened {
         location: LocalOrRemotePath,
         tab_index: usize,
-    },
-    RunTabConfigSkill {
-        path: PathBuf,
     },
     OpenLspLogs {
         log_path: PathBuf,

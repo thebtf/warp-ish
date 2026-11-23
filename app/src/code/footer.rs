@@ -10,7 +10,6 @@ use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 #[cfg(feature = "local_fs")]
 use repo_metadata::repositories::DetectedRepositories;
-use warp_core::send_telemetry_from_ctx;
 use warp_core::ui::Icon;
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::theme::color::internal_colors;
@@ -31,18 +30,12 @@ use warpui::{
 };
 
 #[cfg(feature = "local_fs")]
-use crate::ai::persisted_workspace::PersistedWorkspaceEvent;
-use crate::ai::persisted_workspace::{
+use crate::workspace::persisted_workspace::PersistedWorkspaceEvent;
+use crate::workspace::persisted_workspace::{
     LSPEnablementResultForFile, LspRepoStatus, PersistedWorkspace,
 };
-use crate::code::lsp_telemetry::{LspControlActionType, LspEnablementSource, LspTelemetryEvent};
-use crate::settings::AISettings;
 use crate::ui_components::blended_colors;
-#[cfg(feature = "local_fs")]
-use crate::user_config::is_tab_config_toml;
-use crate::view_components::action_button::{
-    ActionButton, ButtonSize, NakedTheme, PaneHeaderTheme,
-};
+use crate::view_components::action_button::{ActionButton, ButtonSize, NakedTheme};
 
 const FOOTER_HEIGHT: f32 = 24.;
 /// Margin around the LSP icon container
@@ -68,8 +61,6 @@ struct WorkspaceMouseStates {
 
 /// Determines the operating mode of the footer.
 enum FooterMode {
-    /// Tab config editor — shows a skill CTA instead of LSP details.
-    TabConfig { path: PathBuf },
     /// Single file editor — tracks one server for one file path.
     SingleFile {
         path: PathBuf,
@@ -89,7 +80,6 @@ enum FooterMode {
 impl FooterMode {
     fn path(&self) -> &Path {
         match self {
-            FooterMode::TabConfig { path } => path,
             FooterMode::SingleFile { path, .. } => path,
             FooterMode::Workspace { root_path, .. } => root_path,
         }
@@ -100,7 +90,6 @@ impl FooterMode {
     /// `DisabledAndInstalled` or `DisabledAndNotInstalled` entries.
     fn cta_lsp_repo_statuses(&self) -> Vec<&LspRepoStatus> {
         match self {
-            FooterMode::TabConfig { .. } => vec![],
             FooterMode::SingleFile {
                 lsp_repo_status, ..
             } => {
@@ -136,7 +125,6 @@ pub enum CodeFooterViewAction {
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
     ToggleMenu,
     EnableLSP,
-    RunTabConfigSkill,
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
     OpenLogs,
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
@@ -206,7 +194,6 @@ pub struct CodeFooterView {
     subscribed_server_ids: Vec<LanguageServerId>,
     lsp_status_button: ViewHandle<ActionButton>,
     enable_lsp_button: Option<ViewHandle<ActionButton>>,
-    tab_config_skill_button: Option<ViewHandle<ActionButton>>,
     is_lsp_menu_open: bool,
     /// Whether to render the top border. Disabled for code review footer.
     show_border: bool,
@@ -262,64 +249,6 @@ impl LspRepoStatuses {
 }
 
 impl CodeFooterView {
-    #[cfg(feature = "local_fs")]
-    fn is_tab_config_path(path: &Path) -> bool {
-        is_tab_config_toml(path)
-    }
-
-    #[cfg(not(feature = "local_fs"))]
-    fn is_tab_config_path(_path: &Path) -> bool {
-        false
-    }
-    fn create_tab_config_skill_button(ctx: &mut ViewContext<Self>) -> ViewHandle<ActionButton> {
-        ctx.add_typed_action_view(|_ctx| {
-            ActionButton::new("/update-tab-config", NakedTheme)
-                .with_icon(Icon::Agent)
-                .with_size(ButtonSize::Small)
-                .with_disabled_theme(PaneHeaderTheme)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(CodeFooterViewAction::RunTabConfigSkill);
-                })
-        })
-    }
-
-    fn render_tab_config_info_icon(theme: &WarpTheme) -> Box<dyn Element> {
-        Container::new(
-            ConstrainedBox::new(
-                Icon::Info
-                    .to_warpui_icon(theme.active_ui_text_color())
-                    .finish(),
-            )
-            .with_width(12.)
-            .with_height(12.)
-            .finish(),
-        )
-        .with_margin_left(ICON_MARGIN)
-        .finish()
-    }
-
-    fn is_tab_config_footer(&self) -> bool {
-        matches!(self.mode, FooterMode::TabConfig { .. })
-    }
-
-    fn sync_tab_config_skill_button(&mut self, ctx: &mut ViewContext<Self>) {
-        let Some(button) = &self.tab_config_skill_button else {
-            return;
-        };
-
-        let is_ai_enabled = AISettings::as_ref(ctx).is_any_ai_enabled(ctx);
-        button.update(ctx, |button, ctx| {
-            button.set_disabled(!is_ai_enabled, ctx);
-            button.set_tooltip(
-                Some(if is_ai_enabled {
-                    "Open agent input with the /update-tab-config skill"
-                } else {
-                    "Enable AI to use the /update-tab-config skill"
-                }),
-                ctx,
-            );
-        });
-    }
     fn create_lsp_status_button(
         disabled: bool,
         ctx: &mut ViewContext<Self>,
@@ -342,24 +271,6 @@ impl CodeFooterView {
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub fn new(path: PathBuf, ctx: &mut ViewContext<Self>) -> Self {
         let lsp_status_button = Self::create_lsp_status_button(true, ctx);
-        if Self::is_tab_config_path(&path) {
-            let tab_config_skill_button = Self::create_tab_config_skill_button(ctx);
-            let mut footer = Self {
-                mode: FooterMode::TabConfig { path },
-                lsp_servers: Vec::new(),
-                subscribed_server_ids: Vec::new(),
-                lsp_status_button,
-                enable_lsp_button: None,
-                tab_config_skill_button: Some(tab_config_skill_button),
-                is_lsp_menu_open: false,
-                show_border: true,
-            };
-            footer.sync_tab_config_skill_button(ctx);
-            ctx.subscribe_to_model(&AISettings::handle(ctx), |me, _, _, ctx| {
-                me.sync_tab_config_skill_button(ctx);
-            });
-            return footer;
-        }
 
         let server_type = LanguageId::from_path(&path).map(|id| id.server_type());
 
@@ -447,7 +358,6 @@ impl CodeFooterView {
             is_lsp_menu_open: false,
             lsp_status_button,
             enable_lsp_button,
-            tab_config_skill_button: None,
             show_border: true,
         }
     }
@@ -581,7 +491,6 @@ impl CodeFooterView {
             is_lsp_menu_open: false,
             lsp_status_button,
             enable_lsp_button: None,
-            tab_config_skill_button: None,
             show_border: false,
         };
 
@@ -1408,9 +1317,6 @@ impl CodeFooterView {
     }
 
     fn render_lsp_icon(&self, appearance: &Appearance, app: &AppContext) -> Box<dyn Element> {
-        if self.is_tab_config_footer() {
-            return Empty::new().finish();
-        }
         let theme = appearance.theme();
         let lsp_icon = ChildView::new(&self.lsp_status_button).finish();
         let background_color = theme.background().into_solid();
@@ -1424,7 +1330,6 @@ impl CodeFooterView {
         }
 
         let menu = match &self.mode {
-            FooterMode::TabConfig { .. } => return indicator,
             FooterMode::SingleFile { mouse_states, .. } => {
                 let server = live[0].as_ref(app);
                 self.render_single_server_menu(server, mouse_states, appearance, app)
@@ -1530,9 +1435,6 @@ impl CodeFooterView {
     /// Computes the aggregated status message across all servers.
     /// Priority: failed error > starting/progress text > stopped text.
     fn compute_status_message(&self, app: &AppContext) -> (Option<String>, bool) {
-        if self.is_tab_config_footer() {
-            return (None, false);
-        }
         let live = self.live_servers(app);
         if !live.is_empty() {
             // Check for any failed server first
@@ -1580,7 +1482,6 @@ impl CodeFooterView {
 
         // No servers — show enablement CTA based on mode
         match &self.mode {
-            FooterMode::TabConfig { .. } => (None, false),
             FooterMode::SingleFile {
                 path,
                 lsp_repo_status,
@@ -1668,9 +1569,6 @@ impl CodeFooterView {
 #[derive(Clone)]
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 pub enum CodeFooterViewEvent {
-    RunTabConfigSkill {
-        path: PathBuf,
-    },
     EnableLSP {
         path: PathBuf,
         server_type: Option<LSPServerType>,
@@ -1721,50 +1619,28 @@ impl View for CodeFooterView {
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_main_axis_size(MainAxisSize::Max);
 
-        if self.is_tab_config_footer() {
-            footer_content.add_child(Self::render_tab_config_info_icon(theme));
+        footer_content.add_child(self.render_lsp_icon(appearance, app));
+
+        let (status_message, should_show_enable_button) = self.compute_status_message(app);
+
+        if let Some(status_message) = status_message {
             footer_content.add_child(
                 Shrinkable::new(
                     1.,
-                    Self::render_status_text(
-                        theme,
-                        appearance,
-                        "Use the Warp Agent to update this config".to_string(),
-                    ),
+                    Self::render_status_text(theme, appearance, status_message),
                 )
                 .finish(),
             );
-            if let Some(tab_config_skill_button) = &self.tab_config_skill_button {
-                footer_content.add_child(
-                    Container::new(ChildView::new(tab_config_skill_button).finish())
-                        .with_margin_left(ICON_MARGIN)
-                        .finish(),
-                );
-            }
-        } else {
-            footer_content.add_child(self.render_lsp_icon(appearance, app));
+        }
 
-            let (status_message, should_show_enable_button) = self.compute_status_message(app);
-
-            if let Some(status_message) = status_message {
-                footer_content.add_child(
-                    Shrinkable::new(
-                        1.,
-                        Self::render_status_text(theme, appearance, status_message),
-                    )
+        if should_show_enable_button && let Some(enable_lsp) = &self.enable_lsp_button {
+            // Left margin only to separate from status text; right margin removed
+            // to tighten padding between elements
+            footer_content.add_child(
+                Container::new(ChildView::new(enable_lsp).finish())
+                    .with_margin_left(ICON_MARGIN)
                     .finish(),
-                );
-            }
-
-            if should_show_enable_button && let Some(enable_lsp) = &self.enable_lsp_button {
-                // Left margin only to separate from status text; right margin removed
-                // to tighten padding between elements
-                footer_content.add_child(
-                    Container::new(ChildView::new(enable_lsp).finish())
-                        .with_margin_left(ICON_MARGIN)
-                        .finish(),
-                );
-            }
+            );
         }
 
         let mut container = Container::new(
@@ -1801,12 +1677,6 @@ impl TypedActionView for CodeFooterView {
                 self.is_lsp_menu_open = false;
                 ctx.notify();
             }
-            CodeFooterViewAction::RunTabConfigSkill => {
-                let FooterMode::TabConfig { path } = &self.mode else {
-                    return;
-                };
-                ctx.emit(CodeFooterViewEvent::RunTabConfigSkill { path: path.clone() });
-            }
             CodeFooterViewAction::EnableLSP => {
                 let path = self.mode.path().to_path_buf();
                 let cta_statuses: Vec<LspRepoStatus> = self
@@ -1827,16 +1697,6 @@ impl TypedActionView for CodeFooterView {
                         _ => None,
                     };
 
-                    if let Some(st) = server_type {
-                        send_telemetry_from_ctx!(
-                            LspTelemetryEvent::ServerEnabled {
-                                server_type: st.binary_name().to_string(),
-                                source: LspEnablementSource::FooterButton,
-                                needed_install,
-                            },
-                            ctx
-                        );
-                    }
 
                     if needed_install {
                         ctx.emit(CodeFooterViewEvent::InstallAndEnableLSP {
@@ -1853,18 +1713,6 @@ impl TypedActionView for CodeFooterView {
             }
             CodeFooterViewAction::OpenLogs => {
                 self.is_lsp_menu_open = false;
-                let server_name = self
-                    .lsp_servers
-                    .first()
-                    .and_then(|w| w.upgrade(ctx))
-                    .map(|s| s.as_ref(ctx).server_name());
-                send_telemetry_from_ctx!(
-                    LspTelemetryEvent::ControlAction {
-                        action: LspControlActionType::OpenLogs,
-                        server_type: server_name,
-                    },
-                    ctx
-                );
                 ctx.emit(CodeFooterViewEvent::OpenLogs {
                     path: self.mode.path().to_path_buf(),
                 });
@@ -1873,13 +1721,6 @@ impl TypedActionView for CodeFooterView {
             CodeFooterViewAction::RestartServer => {
                 self.is_lsp_menu_open = false;
                 if let Some(server) = self.lsp_servers.first().and_then(|w| w.upgrade(ctx)) {
-                    send_telemetry_from_ctx!(
-                        LspTelemetryEvent::ControlAction {
-                            action: LspControlActionType::Restart,
-                            server_type: Some(server.as_ref(ctx).server_name()),
-                        },
-                        ctx
-                    );
                     ctx.emit(CodeFooterViewEvent::RestartServer {
                         server: server.clone(),
                     });
@@ -1889,13 +1730,6 @@ impl TypedActionView for CodeFooterView {
             CodeFooterViewAction::StopServer => {
                 self.is_lsp_menu_open = false;
                 if let Some(server) = self.lsp_servers.first().and_then(|w| w.upgrade(ctx)) {
-                    send_telemetry_from_ctx!(
-                        LspTelemetryEvent::ControlAction {
-                            action: LspControlActionType::Stop,
-                            server_type: Some(server.as_ref(ctx).server_name()),
-                        },
-                        ctx
-                    );
                     ctx.emit(CodeFooterViewEvent::StopServer {
                         server: server.clone(),
                     });
@@ -1905,13 +1739,6 @@ impl TypedActionView for CodeFooterView {
             CodeFooterViewAction::StartServer => {
                 self.is_lsp_menu_open = false;
                 if let Some(server) = self.lsp_servers.first().and_then(|w| w.upgrade(ctx)) {
-                    send_telemetry_from_ctx!(
-                        LspTelemetryEvent::ControlAction {
-                            action: LspControlActionType::Start,
-                            server_type: Some(server.as_ref(ctx).server_name()),
-                        },
-                        ctx
-                    );
                     ctx.emit(CodeFooterViewEvent::StartServer {
                         server: server.clone(),
                     });
@@ -1924,13 +1751,6 @@ impl TypedActionView for CodeFooterView {
                     let workspace_root = server.as_ref(ctx).initial_workspace().to_path_buf();
                     let server_type = server.as_ref(ctx).server_type();
 
-                    send_telemetry_from_ctx!(
-                        LspTelemetryEvent::ServerRemoved {
-                            server_type: server_type.binary_name().to_string(),
-                            source: LspEnablementSource::FooterButton,
-                        },
-                        ctx
-                    );
 
                     // Remove from manager (stops and removes)
                     LspManagerModel::handle(ctx).update(ctx, |manager, ctx| {
@@ -1946,26 +1766,12 @@ impl TypedActionView for CodeFooterView {
             }
             CodeFooterViewAction::RestartAllServers => {
                 self.is_lsp_menu_open = false;
-                send_telemetry_from_ctx!(
-                    LspTelemetryEvent::ControlAction {
-                        action: LspControlActionType::RestartAll,
-                        server_type: None,
-                    },
-                    ctx
-                );
                 let live = self.live_servers(ctx);
                 ctx.emit(CodeFooterViewEvent::RestartAllServers { servers: live });
                 ctx.notify();
             }
             CodeFooterViewAction::StopAllServers => {
                 self.is_lsp_menu_open = false;
-                send_telemetry_from_ctx!(
-                    LspTelemetryEvent::ControlAction {
-                        action: LspControlActionType::StopAll,
-                        server_type: None,
-                    },
-                    ctx
-                );
                 let live = self.live_servers(ctx);
                 ctx.emit(CodeFooterViewEvent::StopAllServers { servers: live });
                 ctx.notify();

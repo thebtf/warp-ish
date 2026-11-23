@@ -131,27 +131,6 @@ impl ShellStarter {
         }
     }
 
-    /// Returns a shell-side recovery directory and whether the home fallback was needed.
-    pub fn recovery_working_directory(
-        &self,
-        requested: Option<&str>,
-        home_directory: Option<&str>,
-    ) -> anyhow::Result<(String, bool)> {
-        let launch_data = self.launch_data();
-        let is_directory = |path| {
-            launch_data
-                .maybe_convert_absolute_path(path)
-                .is_some_and(|path| path.is_absolute() && path.is_dir())
-        };
-        if let Some(requested) = requested.filter(|path| is_directory(path)) {
-            return Ok((requested.to_owned(), false));
-        }
-        let fallback = home_directory
-            .filter(|path| is_directory(path))
-            .context("no accessible home directory for shell recovery")?;
-        Ok((fallback.to_owned(), true))
-    }
-
     /// Constructs a `ShellStarter` represent the shell binary (and corresponding arguments) to be
     /// used to spawn a shell process for a new top-level Warp session. If a WSL Distribution is
     /// given, then it will always construct a `ShellStarter` starting the default shell for that

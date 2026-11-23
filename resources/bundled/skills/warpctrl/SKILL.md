@@ -48,7 +48,7 @@ Validate that each result corresponds to the command that was invoked. If output
 
 Before discovering commands, route the request to the narrowest matching top-level group:
 
-1. Requests to open, show, view, or toggle a named Warp UI destination, panel, picker, or settings page use `surface`. Convert natural-language names to kebab case, such as "Warp Drive" to `warp-drive` and "code review" to `code-review`. Prefer `surface <name> open` when the requested final state is open. Use `surface list` or `surface help` when the destination or supported verb is unknown. Do not infer an internal action name for a UI destination.
+1. Requests to open, show, view, or toggle a named Warp UI destination, panel, picker, or settings page use `surface`. Convert natural-language names to kebab case, such as "project explorer" to `project-explorer` and "code review" to `code-review`. Prefer `surface <name> open` when the requested final state is open. Use `surface list` or `surface help` when the destination or supported verb is unknown. Do not infer an internal action name for a UI destination.
 2. Requests about windows, tabs, panes, or sessions use the matching `window`, `tab`, `pane`, or `session` group.
 3. Requests to stage or inspect editor input use `input`.
 4. Requests to open a file in Warp use `file`.
@@ -113,17 +113,13 @@ These are frequently used commands that are safe to invoke directly. For less co
 {{warpctrl_binary_name}} surface command-search open
 {{warpctrl_binary_name}} surface theme-picker open
 {{warpctrl_binary_name}} surface keybindings open
-{{warpctrl_binary_name}} surface warp-drive open
 {{warpctrl_binary_name}} surface resource-center toggle
-{{warpctrl_binary_name}} surface ai-assistant toggle
 {{warpctrl_binary_name}} surface project-explorer open
 {{warpctrl_binary_name}} surface global-search open
-{{warpctrl_binary_name}} surface conversation-list open
 {{warpctrl_binary_name}} surface code-review open
 {{warpctrl_binary_name}} surface left-panel toggle
 {{warpctrl_binary_name}} surface right-panel toggle
 {{warpctrl_binary_name}} surface vertical-tabs open
-{{warpctrl_binary_name}} surface agent-management open
 
 # Open a file in Warp
 {{warpctrl_binary_name}} file open ./src/main.rs --line 42

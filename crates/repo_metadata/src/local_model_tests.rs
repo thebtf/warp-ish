@@ -372,66 +372,164 @@ fn remove_repository_keeps_nested_repo_build_tasks() {
 
 #[cfg(feature = "local_fs")]
 #[test]
-fn remove_repository_aborts_and_drops_watcher_update_tasks() {
+fn watcher_bursts_reconcile_after_active_scan_without_losing_rename_sources() {
+    VirtualFS::test("watcher_bursts_reconcile", |dirs, mut vfs| {
+        vfs.mkdir("repo/recreated")
+            .with_files(vec![
+                Stub::FileWithContent("repo/destination.txt", "new"),
+                Stub::FileWithContent("repo/recreated/current.txt", "new"),
+            ]);
+        let repo_path =
+            StandardizedPath::from_local_canonicalized(&dirs.tests().join("repo")).unwrap();
+        let root = repo_path.to_local_path().unwrap();
+        let first_source = root.join("first.txt");
+        let second_source = root.join("second.txt");
+        let destination = root.join("destination.txt");
+        let recreated = root.join("recreated");
+        let old_child = recreated.join("stale.txt");
+        let new_child = recreated.join("current.txt");
+        let std_path = |path: &std::path::Path| StandardizedPath::try_from_local(path).unwrap();
+
+        App::test((), |mut app| async move {
+            let model_handle = app.add_model(|_| LocalRepoMetadataModel::new_for_test());
+            model_handle.update(&mut app, |model, ctx| {
+                let initial_entry = Entry::Directory(DirectoryEntry {
+                    path: repo_path.clone(),
+                    children: vec![
+                        Entry::File(FileMetadata::new(first_source.clone(), false)),
+                        Entry::File(FileMetadata::new(second_source.clone(), false)),
+                        Entry::Directory(DirectoryEntry {
+                            path: std_path(&recreated),
+                            children: vec![Entry::File(FileMetadata::new(old_child.clone(), false))],
+                            ignored: false,
+                            loaded: true,
+                        }),
+                    ],
+                    ignored: false,
+                    loaded: true,
+                });
+                model.repositories.insert(
+                    repo_path.clone(),
+                    IndexedRepoState::Indexed(FileTreeState::new(initial_entry, Vec::new(), None)),
+                );
+                model.handle_watcher_event(
+                    &BulkFilesystemWatcherEvent {
+                        modified: [destination.clone()].into(),
+                        ..Default::default()
+                    },
+                    ctx,
+                );
+                let active_id = model.watcher_update_tasks[&repo_path].handle.future_id();
+
+                // The active callback cannot check out the model while this update runs.
+                for source in [&first_source, &second_source] {
+                    for _ in 0..8 {
+                        model.handle_watcher_event(
+                            &BulkFilesystemWatcherEvent {
+                                added: [destination.clone(), recreated.clone()].into(),
+                                modified: [destination.clone()].into(),
+                                deleted: [recreated.clone()].into(),
+                                moved: [(destination.clone(), source.clone())].into(),
+                            },
+                            ctx,
+                        );
+                    }
+                }
+                let task = &model.watcher_update_tasks[&repo_path];
+                assert_eq!(task.handle.future_id(), active_id);
+                assert_eq!(task.pending.paths.len(), 4);
+                assert!(task.pending.paths[&first_source].remove);
+                assert!(task.pending.paths[&second_source].remove);
+                assert!(task.pending.paths[&destination].refresh);
+                assert!(task.pending.paths[&recreated].remove);
+                assert!(task.pending.paths[&recreated].refresh);
+            });
+
+            // Both the active and the accumulated batches must commit through the real callback.
+            while let Some(future_id) = model_handle.read(&app, |model, _ctx| {
+                model
+                    .watcher_update_tasks
+                    .get(&repo_path)
+                    .map(|task| task.handle.future_id())
+            }) {
+                model_handle
+                    .update(&mut app, |_, ctx| ctx.await_spawned_future(future_id))
+                    .await;
+            }
+
+            model_handle.read(&app, |model, _ctx| {
+                let tree = &model.get_repository(&repo_path).unwrap().entry;
+                assert!(tree.get(&std_path(&first_source)).is_none());
+                assert!(tree.get(&std_path(&second_source)).is_none());
+                assert!(tree.get(&std_path(&destination)).is_some());
+                assert!(tree.get(&std_path(&old_child)).is_none());
+                assert!(tree.get(&std_path(&new_child)).is_some());
+            });
+        });
+    });
+}
+
+#[cfg(feature = "local_fs")]
+#[test]
+fn remove_repository_discards_pending_watcher_updates_and_rejects_stale_completion() {
     let repo_path = StandardizedPath::try_new("/watcher_update_removed_repo").unwrap();
 
     App::test((), |mut app| async move {
         let model_handle = app.add_model(|_| LocalRepoMetadataModel::new_for_test());
         let (_first_release_tx, first_release_rx) = oneshot::channel::<()>();
         let (_second_release_tx, second_release_rx) = oneshot::channel::<()>();
-        let (first_future_id, second_future_id) = model_handle.update(&mut app, |model, ctx| {
+
+        let (old_id, new_id) = model_handle.update(&mut app, |model, ctx| {
             model.repositories.insert(
                 repo_path.clone(),
                 IndexedRepoState::Indexed(empty_repo_state(&repo_path)),
             );
-
-            let first_handle = ctx.spawn(
+            let old_handle = ctx.spawn(
                 async move {
                     let _ = first_release_rx.await;
                 },
                 |_, _, _| {},
             );
-            let first_future_id = first_handle.future_id();
-            model.track_watcher_update_task(repo_path.clone(), first_handle);
+            let old_id = old_handle.future_id();
+            model.track_watcher_update_task(repo_path.clone(), old_handle);
 
-            let second_handle = ctx.spawn(
+            let mut queued = RepoUpdate::default();
+            queued.add(PathBuf::from("old"));
+            model.queue_watcher_update(repo_path.clone(), queued, ctx);
+            assert_eq!(model.watcher_update_tasks[&repo_path].pending.paths.len(), 1);
+            model.remove_repository(&repo_path, ctx).unwrap();
+            assert!(!model.watcher_update_tasks.contains_key(&repo_path));
+
+            model.repositories.insert(
+                repo_path.clone(),
+                IndexedRepoState::Indexed(empty_repo_state(&repo_path)),
+            );
+            let new_handle = ctx.spawn(
                 async move {
                     let _ = second_release_rx.await;
                 },
                 |_, _, _| {},
             );
-            let second_future_id = second_handle.future_id();
-            model.track_watcher_update_task(repo_path.clone(), second_handle);
+            let new_id = new_handle.future_id();
+            model.track_watcher_update_task(repo_path.clone(), new_handle);
+            let mut queued = RepoUpdate::default();
+            queued.add(PathBuf::from("new"));
+            model.queue_watcher_update(repo_path.clone(), queued, ctx);
+            assert!(model.finish_watcher_update_task(&repo_path, Some(old_id)).is_none());
+            let task = &model.watcher_update_tasks[&repo_path];
+            assert_eq!(task.handle.future_id(), new_id);
+            assert_eq!(task.pending.paths.len(), 1);
+            assert!(task.pending.paths.contains_key(std::path::Path::new("new")));
+            model.remove_repository(&repo_path, ctx).unwrap();
 
-            (first_future_id, second_future_id)
+            (old_id, new_id)
         });
 
-        model_handle.read(&app, |model, _ctx| {
-            assert_eq!(
-                model
-                    .watcher_update_tasks
-                    .get(&repo_path)
-                    .expect("watcher tasks should be tracked")
-                    .len(),
-                2
-            );
-        });
-
-        model_handle.update(&mut app, |model, ctx| {
-            model
-                .remove_repository(&repo_path, ctx)
-                .expect("repository should be removed");
-        });
-
-        model_handle
-            .update(&mut app, |_, ctx| ctx.await_spawned_future(first_future_id))
-            .await;
-        model_handle
-            .update(&mut app, |_, ctx| {
-                ctx.await_spawned_future(second_future_id)
-            })
-            .await;
-
+        for id in [old_id, new_id] {
+            model_handle
+                .update(&mut app, |_, ctx| ctx.await_spawned_future(id))
+                .await;
+        }
         model_handle.read(&app, |model, _ctx| {
             assert!(!model.watcher_update_tasks.contains_key(&repo_path));
         });
@@ -472,14 +570,11 @@ fn remove_repository_keeps_nested_repo_watcher_update_tasks() {
 
         let nested_handle = model_handle.update(&mut app, |model, _ctx| {
             assert!(model.repository_state(&parent_repo_path).is_none());
-            let tasks = model
+            model
                 .watcher_update_tasks
                 .remove(&nested_repo_path)
-                .expect("nested repo watcher task should not be aborted by parent teardown");
-            tasks
-                .into_values()
-                .next()
-                .expect("nested repo watcher task should still be tracked")
+                .expect("nested repo watcher task should not be aborted by parent teardown")
+                .handle
         });
 
         nested_handle.abort();
@@ -1368,11 +1463,10 @@ fn test_update_file_tree_entry_respects_gitignore() {
         let readme_file = repo_path.join("README.md");
 
         // Create update with both ignored and allowed files
-        let update = RepoUpdate {
-            added: vec![log_file.clone(), readme_file.clone(), target_dir.clone()],
-            deleted: vec![],
-            moved: HashMap::new(),
-        };
+        let mut update = RepoUpdate::default();
+        update.add(log_file.clone());
+        update.add(readme_file.clone());
+        update.add(target_dir.clone());
 
         // Compute mutations on the "background thread" then apply on the "main thread".
         let standing_query_definitions = Default::default();
@@ -1871,10 +1965,8 @@ fn added_symlinked_skill_directory_refreshes_provider_without_canonical_tree_mut
 
         let mut definitions = StandingQueryDefinitions::default();
         definitions.set_project_skill_provider_paths([PathBuf::from(".agents/skills")]);
-        let update = RepoUpdate {
-            added: vec![linked_skill.clone()],
-            ..Default::default()
-        };
+        let mut update = RepoUpdate::default();
+        update.add(linked_skill.clone());
         let (mutations, discovered, removed_roots) =
             block_on(LocalRepoMetadataModel::compute_file_tree_mutations(
                 &update,
@@ -1914,10 +2006,8 @@ fn unrelated_skill_support_file_does_not_refresh_project_skills() {
 
         let mut definitions = StandingQueryDefinitions::default();
         definitions.set_project_skill_provider_paths([PathBuf::from(".agents/skills")]);
-        let update = RepoUpdate {
-            added: vec![support_file],
-            ..Default::default()
-        };
+        let mut update = RepoUpdate::default();
+        update.add(support_file);
         let (_, discovered, _) = block_on(LocalRepoMetadataModel::compute_file_tree_mutations(
             &update,
             &[],
@@ -1938,10 +2028,8 @@ fn removed_direct_skill_child_refreshes_provider_for_possible_symlink_removal() 
 
         let mut definitions = StandingQueryDefinitions::default();
         definitions.set_project_skill_provider_paths([PathBuf::from(".agents/skills")]);
-        let update = RepoUpdate {
-            deleted: vec![provider.join("removed-skill")],
-            ..Default::default()
-        };
+        let mut update = RepoUpdate::default();
+        update.remove(provider.join("removed-skill"));
         let (_, discovered, _) = block_on(LocalRepoMetadataModel::compute_file_tree_mutations(
             &update,
             &[],
@@ -2373,8 +2461,10 @@ fn removed_external_symlink_target_directory_queues_lexical_removal_and_clears_m
                     let update = repo_updates
                         .get(&repo_path)
                         .expect("target directory deletion should queue a lexical refresh");
-                    assert_eq!(update.deleted, vec![logical_skill_dir.clone()]);
-                    assert!(update.added.is_empty());
+                    assert_eq!(update.paths.len(), 1);
+                    let change = &update.paths[&logical_skill_dir];
+                    assert!(change.remove);
+                    assert!(!change.refresh);
 
                     model.refresh_symlink_targets(&repo_path, ctx);
                     assert!(model.symlink_targets.is_empty());
@@ -3127,7 +3217,7 @@ fn incremental_force_included_dir_under_ignored_parent_matches_initial_index() {
                 let mut standing_results = crate::StandingQueryResults::default();
                 let root = block_on(Entry::build_tree_with_standing_queries(
                     &repo_local,
-                    &mut files,
+                    Some(&mut files),
                     &mut gitignores,
                     Some(&mut budget),
                     BuildTreeOptions {
@@ -3159,10 +3249,8 @@ fn incremental_force_included_dir_under_ignored_parent_matches_initial_index() {
             );
 
             // Incremental watcher path: `.agents/skills` is reported as added.
-            let update = RepoUpdate {
-                added: vec![skills_local.clone()],
-                ..Default::default()
-            };
+            let mut update = RepoUpdate::default();
+            update.add(skills_local.clone());
             let (mutations, _standing_results, _removed) =
                 block_on(LocalRepoMetadataModel::compute_file_tree_mutations(
                     &update,
@@ -3239,10 +3327,9 @@ fn incremental_deep_event_under_unloaded_ignored_dir_is_collapsed() {
             let gitignores = crate::gitignores_for_directory(&repo_local);
             let definitions = StandingQueryDefinitions::default();
 
-            let update = RepoUpdate {
-                added: vec![deep_dir_local, deep_file_local],
-                ..Default::default()
-            };
+            let mut update = RepoUpdate::default();
+            update.add(deep_dir_local);
+            update.add(deep_file_local);
             let (mutations, _standing_results, _removed) =
                 block_on(LocalRepoMetadataModel::compute_file_tree_mutations(
                     &update,
@@ -3318,10 +3405,8 @@ fn incremental_event_under_expanded_ignored_dir_keeps_it_loaded() {
             let gitignores = crate::gitignores_for_directory(&repo_local);
             let definitions = StandingQueryDefinitions::default();
 
-            let update = RepoUpdate {
-                added: vec![new_file_local],
-                ..Default::default()
-            };
+            let mut update = RepoUpdate::default();
+            update.add(new_file_local);
             let (mutations, _standing_results, _removed) =
                 block_on(LocalRepoMetadataModel::compute_file_tree_mutations(
                     &update,
@@ -3624,10 +3709,8 @@ fn lazy_root_created_directory_inserted_as_placeholder() {
                 loaded: true,
             }))
         };
-        let update = RepoUpdate {
-            added: vec![new_dir.clone()],
-            ..Default::default()
-        };
+        let mut update = RepoUpdate::default();
+        update.add(new_dir.clone());
         let definitions = StandingQueryDefinitions::default();
 
         // Lazy root: the new directory is an unloaded placeholder and its

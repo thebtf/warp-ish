@@ -7,7 +7,6 @@ use lazy_static::lazy_static;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use warp_core::features::FeatureFlag;
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::icons::Icon;
 use warp_core::ui::theme::Fill;
@@ -28,28 +27,12 @@ lazy_static! {
         primary_text: "workflows:",
         aliases: vec!["w:"]
     };
-    static ref AGENT_MODE_WORKFLOWS_FILTER_ATOM: FilterAtom = FilterAtom {
-        primary_text: "prompts:",
-        aliases: vec!["p:"]
-    };
-    static ref NOTEBOOKS_FILTER_ATOM: FilterAtom = FilterAtom {
-        primary_text: "notebooks:",
-        aliases: vec!["n:"]
-    };
-    static ref PLANS_FILTER_ATOM: FilterAtom = FilterAtom {
-        primary_text: "plans:",
-        aliases: vec![]
-    };
     static ref NATURAL_LANGUAGE_FILTER_ATOM: FilterAtom = FilterAtom {
         primary_text: "#",
         aliases: vec![]
     };
     static ref ACTIONS_FILTER_ATOM: FilterAtom = FilterAtom {
         primary_text: "actions:",
-        aliases: vec![]
-    };
-    static ref DRIVE_FILTER_ATOM: FilterAtom = FilterAtom {
-        primary_text: "drive:",
         aliases: vec![]
     };
     static ref SESSIONS_FILTER_ATOM: FilterAtom = FilterAtom {
@@ -62,14 +45,6 @@ lazy_static! {
     };
     static ref LAUNCH_CONFIG_FILTER_ATOM: FilterAtom = FilterAtom {
         primary_text: "launch_configs:",
-        aliases: vec![]
-    };
-    static ref ENV_VARS_FILTER_ATOM: FilterAtom = FilterAtom {
-        primary_text: "env_vars:",
-        aliases: vec![]
-    };
-    static ref AI_PROMPTS_FILTER_ATOM: FilterAtom = FilterAtom {
-        primary_text: "ai_history:",
         aliases: vec![]
     };
     static ref FILES_FILTER_ATOM: FilterAtom = FilterAtom {
@@ -152,15 +127,6 @@ pub enum QueryFilter {
     /// Only include command workflows from WorkflowsDataSource.
     Workflows,
 
-    /// Only include agent mode workflows (prompts) from WorkflowsDataSource.
-    AgentModeWorkflows,
-
-    /// Only include results from NotebooksDataSource.
-    Notebooks,
-
-    /// Only include results from PlansDataSource.
-    Plans,
-
     /// Only include the Natural Language (AI) command search result.
     NaturalLanguage,
 
@@ -178,15 +144,6 @@ pub enum QueryFilter {
 
     /// Filter results for launch configurations.
     LaunchConfigurations,
-
-    /// Filter for objects in Warp Drive
-    Drive,
-
-    /// Filter results for environment variables.
-    EnvironmentVariables,
-
-    /// Filter results for historical AI history.
-    PromptHistory,
 
     /// Filter results for files.
     Files,
@@ -236,18 +193,12 @@ impl QueryFilter {
         match self {
             QueryFilter::History => "Search history",
             QueryFilter::Workflows => "Search workflows",
-            QueryFilter::AgentModeWorkflows => "Search prompts",
-            QueryFilter::Notebooks => "Search notebooks",
-            QueryFilter::Plans => "Search plans",
             QueryFilter::NaturalLanguage => "e.g. replace string in file",
             QueryFilter::Actions => "Search actions",
             QueryFilter::Sessions => "Search sessions",
             QueryFilter::Tabs => "Search tabs",
             QueryFilter::Conversations => "Search conversations",
             QueryFilter::LaunchConfigurations => "Search launch configurations",
-            QueryFilter::Drive => "Search objects in drive",
-            QueryFilter::EnvironmentVariables => "Search environment variables",
-            QueryFilter::PromptHistory => "Search prompt history",
             QueryFilter::Files => "Search files",
             QueryFilter::Commands => "Search commands",
             QueryFilter::Blocks => "Search blocks",
@@ -270,18 +221,12 @@ impl QueryFilter {
         match self {
             QueryFilter::History => &HISTORY_FILTER_ATOM,
             QueryFilter::Workflows => &WORKFLOWS_FILTER_ATOM,
-            QueryFilter::AgentModeWorkflows => &AGENT_MODE_WORKFLOWS_FILTER_ATOM,
-            QueryFilter::Notebooks => &NOTEBOOKS_FILTER_ATOM,
-            QueryFilter::Plans => &PLANS_FILTER_ATOM,
             QueryFilter::NaturalLanguage => &NATURAL_LANGUAGE_FILTER_ATOM,
             QueryFilter::Actions => &ACTIONS_FILTER_ATOM,
             QueryFilter::Sessions => &SESSIONS_FILTER_ATOM,
             QueryFilter::Tabs => &NO_FILTER_ATOM,
             QueryFilter::Conversations => &CONVERSATIONS_FILTER_ATOM,
             QueryFilter::LaunchConfigurations => &LAUNCH_CONFIG_FILTER_ATOM,
-            QueryFilter::Drive => &DRIVE_FILTER_ATOM,
-            QueryFilter::EnvironmentVariables => &ENV_VARS_FILTER_ATOM,
-            QueryFilter::PromptHistory => &AI_PROMPTS_FILTER_ATOM,
             QueryFilter::Files => &FILES_FILTER_ATOM,
             QueryFilter::Commands => &COMMANDS_FILTER_ATOM,
             QueryFilter::Blocks => &BLOCKS_FILTER_ATOM,
@@ -302,18 +247,12 @@ impl QueryFilter {
         match self {
             QueryFilter::History => "history",
             QueryFilter::Workflows => "workflows",
-            QueryFilter::AgentModeWorkflows => "prompts",
-            QueryFilter::Notebooks => "notebooks",
-            QueryFilter::Plans => "plans",
             QueryFilter::NaturalLanguage => "AI command suggestions",
             QueryFilter::Actions => "actions",
             QueryFilter::Sessions => "sessions",
             QueryFilter::Tabs => "tabs",
             QueryFilter::Conversations => "conversations",
             QueryFilter::LaunchConfigurations => "launch configurations",
-            QueryFilter::Drive => "Warp Drive",
-            QueryFilter::EnvironmentVariables => "environment variables",
-            QueryFilter::PromptHistory => "prompt history",
             QueryFilter::Files => "files",
             QueryFilter::Commands => "commands",
             QueryFilter::Blocks => "blocks",
@@ -334,25 +273,12 @@ impl QueryFilter {
         match self {
             QueryFilter::History => Some("bundled/svg/history.svg"),
             QueryFilter::Workflows => Some("bundled/svg/workflow.svg"),
-            QueryFilter::Notebooks => Some("bundled/svg/notebook.svg"),
-            QueryFilter::Plans => Some("bundled/svg/compass-3.svg"),
-            QueryFilter::NaturalLanguage => {
-                if !FeatureFlag::AgentMode.is_enabled() {
-                    Some(Icon::AiAssistant.into())
-                } else {
-                    Some(Icon::Stars.into())
-                }
-            }
+            QueryFilter::NaturalLanguage => Some(Icon::Stars.into()),
             QueryFilter::Actions => None,
             QueryFilter::Sessions => Some("bundled/svg/terminal-input.svg"),
             QueryFilter::Tabs => Some("bundled/svg/terminal-input.svg"),
             QueryFilter::Conversations => Some("bundled/svg/conversation.svg"),
             QueryFilter::LaunchConfigurations => Some("bundled/svg/navigation.svg"),
-            QueryFilter::Drive => Some("bundled/svg/warp-drive.svg"),
-            QueryFilter::EnvironmentVariables => Some("bundled/svg/env-var-collection.svg"),
-            QueryFilter::AgentModeWorkflows | QueryFilter::PromptHistory => {
-                Some(Icon::Prompt.into())
-            }
             QueryFilter::Files => Some("bundled/svg/completion-file.svg"),
             QueryFilter::Commands => Some("bundled/svg/terminal.svg"),
             QueryFilter::Blocks => Some("bundled/svg/block.svg"),

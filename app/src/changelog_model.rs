@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
 
 use channel_versions::{Changelog, MarkdownSection};
 use itertools::Itertools;
@@ -9,26 +8,23 @@ use warpui::assets::asset_cache::{AssetCache, AssetSource};
 use warpui::image_cache::ImageType;
 use warpui::{Entity, ModelContext, SingletonEntity};
 
-use crate::autoupdate::{self};
+use crate::autoupdate::{self, ReleaseSource};
 use crate::channel::{Channel, ChannelState};
-use crate::features::{FeatureFlag, PREVIEW_FLAGS};
-use crate::server::server_api::ServerApi;
+use crate::features::PREVIEW_FLAGS;
 
 pub struct ChangelogModel {
     pub changelog: ChangelogState,
     pub parsed_changelog: HashMap<String, FormattedText>,
-    pub oz_updates: Vec<FormattedText>,
-    pub server_api: Arc<ServerApi>,
+    source: ReleaseSource,
     pub image: Option<AssetSource>,
 }
 
 impl ChangelogModel {
-    pub fn new(server_api: Arc<ServerApi>) -> Self {
+    pub(crate) fn new(source: ReleaseSource) -> Self {
         Self {
             changelog: ChangelogState::None,
             parsed_changelog: HashMap::new(),
-            oz_updates: Vec::new(),
-            server_api,
+            source,
             image: None,
         }
     }
@@ -52,12 +48,12 @@ impl ChangelogModel {
             }
             ChangelogState::None => {
                 self.changelog = ChangelogState::Pending;
-                let server_api = self.server_api.clone();
+                let source = self.source.clone();
                 let _ = ctx.spawn(
                     async move {
                         (
                             request_type,
-                            autoupdate::get_current_changelog(server_api).await,
+                            autoupdate::get_current_changelog(source).await,
                         )
                     },
                     Self::handle_changelog_check,
@@ -76,13 +72,6 @@ impl ChangelogModel {
     ) {
         match changelog {
             Ok(Some(changelog)) => {
-                if FeatureFlag::OzChangelogUpdates.is_enabled() {
-                    self.oz_updates = changelog
-                        .oz_updates
-                        .iter()
-                        .filter_map(|update_markdown| parse_markdown(update_markdown).ok())
-                        .collect();
-                }
                 self.changelog = ChangelogState::Some(changelog.clone());
                 self.maybe_add_changelog_sections();
                 self.parse_changelog_markdown();

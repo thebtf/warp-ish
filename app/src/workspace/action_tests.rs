@@ -80,3 +80,96 @@ fn pane_name_actions_save_workspace_state() {
     // `rename_pane` which mutates `pane_configuration`.
     assert!(WorkspaceAction::RenameActivePane.should_save_app_state_on_action());
 }
+
+#[test]
+fn terminal_product_actions_keep_local_tools_and_reject_builtin_platform() {
+    use crate::palette::PaletteMode;
+    use super::PaletteSource;
+    use crate::settings_view::SettingsSection;
+
+    for action in [
+        WorkspaceAction::AddTerminalTab {
+            hide_homepage: false,
+        },
+        WorkspaceAction::NewCodeFile,
+        WorkspaceAction::OpenRepository { path: None },
+        WorkspaceAction::ToggleRightPanel,
+        WorkspaceAction::RunCommand("omp".to_owned()),
+        WorkspaceAction::ShowSettingsPage(SettingsSection::EditorAndCodeReview),
+        WorkspaceAction::ToggleLeftPanel,
+        WorkspaceAction::ToggleProjectExplorer,
+        WorkspaceAction::TogglePalette {
+            mode: PaletteMode::Files,
+            source: PaletteSource::Keybinding,
+        },
+    ] {
+        assert!(action.is_terminal_action(), "{action:?}");
+    }
+    for action in [
+        WorkspaceAction::ShowSettingsPage(SettingsSection::Account),
+    ] {
+        assert!(!action.is_terminal_action(), "{action:?}");
+    }
+}
+
+#[test]
+fn terminal_product_actions_keep_file_notebook_and_local_workflow_commands() {
+    use crate::notebooks::NotebookLocation;
+    use crate::workflows::workflow::Workflow;
+    use crate::workflows::{WorkflowSelectionSource, WorkflowSource, WorkflowType};
+    use std::sync::Arc;
+
+    let workflow = Workflow::new("Local command", "echo hello");
+    let action = |workflow, workflow_source| WorkspaceAction::RunWorkflow {
+        workflow: Arc::new(workflow),
+        workflow_source,
+        workflow_selection_source: WorkflowSelectionSource::WorkflowView,
+        argument_override: None,
+    };
+    assert!(
+        action(
+            WorkflowType::Local(workflow.clone()),
+            WorkflowSource::Project
+        )
+        .is_terminal_action()
+    );
+    for location in [NotebookLocation::LocalFile, NotebookLocation::RemoteFile] {
+        assert!(
+            action(
+                WorkflowType::Notebook(workflow.clone()),
+                WorkflowSource::Notebook {
+                    notebook_id: None,
+                    team_uid: None,
+                    location,
+                }
+            )
+            .is_terminal_action()
+        );
+    }
+    assert!(
+        !action(
+            WorkflowType::Notebook(workflow.clone()),
+            WorkflowSource::Notebook {
+                notebook_id: None,
+                team_uid: None,
+                location: NotebookLocation::PersonalCloud,
+            }
+        )
+        .is_terminal_action()
+    );
+
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn terminal_product_actions_reject_platform_debug_controls() {
+    for action in [
+        WorkspaceAction::InstallOpenCodeWarpPlugin,
+        WorkspaceAction::UseLocalOpenCodeWarpPlugin,
+        WorkspaceAction::ShowHoaOnboardingFlow,
+    ] {
+        assert!(!action.is_terminal_action(), "{action:?}");
+    }
+    assert!(WorkspaceAction::ShowSessionConfigModal.is_terminal_action());
+    assert!(WorkspaceAction::OpenViewTreeDebugWindow.is_terminal_action());
+}

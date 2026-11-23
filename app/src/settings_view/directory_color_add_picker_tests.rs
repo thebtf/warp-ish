@@ -19,19 +19,18 @@ fn all_exist(_: &Path) -> bool {
 }
 
 #[test]
-fn test_union_dedupes_across_sources() {
-    let indexed = vec![PathBuf::from("/nonexistent/repo_a")];
-    let persisted = vec![PathBuf::from("/nonexistent/repo_a")];
+fn test_duplicate_paths_appear_once() {
+    let paths = vec![PathBuf::from("/nonexistent/repo_a"); 2];
     let existing = DirectoryTabColors::default();
 
-    let candidates = compute_candidate_paths(indexed, persisted, &existing, all_exist);
+    let candidates = compute_candidate_paths(paths, &existing, all_exist);
 
     assert_eq!(candidates, vec![PathBuf::from("/nonexistent/repo_a")]);
 }
 
 #[test]
 fn test_filters_out_existing_non_suppressed_entries() {
-    let indexed = vec![
+    let paths = vec![
         PathBuf::from("/nonexistent/unassigned"),
         PathBuf::from("/nonexistent/colored"),
         PathBuf::from("/nonexistent/fresh"),
@@ -44,20 +43,20 @@ fn test_filters_out_existing_non_suppressed_entries() {
         ),
     ]);
 
-    let candidates = compute_candidate_paths(indexed, Vec::<PathBuf>::new(), &existing, all_exist);
+    let candidates = compute_candidate_paths(paths, &existing, all_exist);
 
     assert_eq!(candidates, vec![PathBuf::from("/nonexistent/fresh")]);
 }
 
 #[test]
 fn test_retains_suppressed_entries_as_candidates() {
-    let indexed = vec![PathBuf::from("/nonexistent/suppressed_repo")];
+    let paths = vec![PathBuf::from("/nonexistent/suppressed_repo")];
     let existing = colors(&[(
         "/nonexistent/suppressed_repo",
         DirectoryTabColor::Suppressed,
     )]);
 
-    let candidates = compute_candidate_paths(indexed, Vec::<PathBuf>::new(), &existing, all_exist);
+    let candidates = compute_candidate_paths(paths, &existing, all_exist);
 
     assert_eq!(
         candidates,
@@ -67,13 +66,13 @@ fn test_retains_suppressed_entries_as_candidates() {
 
 #[test]
 fn test_non_existent_paths_are_dropped() {
-    let indexed = vec![
+    let paths = vec![
         PathBuf::from("/nonexistent/a"),
         PathBuf::from("/nonexistent/b"),
     ];
     let existing = DirectoryTabColors::default();
 
-    let candidates = compute_candidate_paths(indexed, Vec::<PathBuf>::new(), &existing, |p| {
+    let candidates = compute_candidate_paths(paths, &existing, |p| {
         p == Path::new("/nonexistent/b")
     });
 
@@ -82,14 +81,14 @@ fn test_non_existent_paths_are_dropped() {
 
 #[test]
 fn test_worktree_paths_are_kept() {
-    let indexed = vec![
+    let paths = vec![
         PathBuf::from("/users/alice/.warp-dev/worktrees/warp-internal/feature_a"),
         PathBuf::from("/users/alice/.warp-dev/worktrees/warp-internal/feature_b"),
         PathBuf::from("/users/alice/code/primary-repo"),
     ];
     let existing = DirectoryTabColors::default();
 
-    let candidates = compute_candidate_paths(indexed, Vec::<PathBuf>::new(), &existing, all_exist);
+    let candidates = compute_candidate_paths(paths, &existing, all_exist);
 
     assert_eq!(
         candidates,
@@ -103,14 +102,14 @@ fn test_worktree_paths_are_kept() {
 
 #[test]
 fn test_results_are_sorted_alphabetically_by_canonical_key() {
-    let indexed = vec![
+    let paths = vec![
         PathBuf::from("/nonexistent/zulu"),
         PathBuf::from("/nonexistent/alpha"),
+        PathBuf::from("/nonexistent/mango"),
     ];
-    let persisted = vec![PathBuf::from("/nonexistent/mango")];
     let existing = DirectoryTabColors::default();
 
-    let candidates = compute_candidate_paths(indexed, persisted, &existing, all_exist);
+    let candidates = compute_candidate_paths(paths, &existing, all_exist);
 
     assert_eq!(
         candidates,
@@ -126,12 +125,7 @@ fn test_results_are_sorted_alphabetically_by_canonical_key() {
 fn test_empty_inputs_produce_empty_output() {
     let existing = DirectoryTabColors::default();
 
-    let candidates = compute_candidate_paths(
-        Vec::<PathBuf>::new(),
-        Vec::<PathBuf>::new(),
-        &existing,
-        all_exist,
-    );
+    let candidates = compute_candidate_paths(Vec::<PathBuf>::new(), &existing, all_exist);
 
     assert!(candidates.is_empty());
 }

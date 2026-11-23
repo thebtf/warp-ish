@@ -38,7 +38,7 @@ impl LocalWorkflows {
     pub fn new(_ctx: &mut ModelContext<Self>) -> Self {
         Self {
             app_workflows: app_workflows(),
-            global_workflows: global_workflows().into_iter().map(Workflow::from).collect(), // convert from public-facing Workflow type to warp-internal Workflow type
+            global_workflows: global_workflows(),
             project_workflows: Default::default(),
         }
     }
@@ -66,18 +66,13 @@ impl LocalWorkflows {
                 return true;
             };
 
-            if let Some(first_token) = workflow
-                .command()
-                .and_then(|command| command.split_ascii_whitespace().next())
-            {
-                // Show any workflows that start with punctuation, as we can't
-                // be sure of what the first executable token is.
-                return first_token.starts_with(|c: char| c.is_ascii_punctuation())
-                            // Show any workflows that start with a token matching the top-level
-                            // commands available in the user's session.
-                            || top_level_commands.contains(&first_token.to_lowercase());
-            }
-            false
+            let Some(first_token) = workflow.command().split_ascii_whitespace().next() else {
+                return false;
+            };
+
+            // Punctuation may introduce a shell construct instead of an executable name.
+            first_token.starts_with(|c: char| c.is_ascii_punctuation())
+                || top_level_commands.contains(&first_token.to_lowercase())
         })
     }
 
@@ -140,17 +135,7 @@ impl LocalWorkflows {
                     .iter()
                     .map(|workflow| (WorkflowSource::Local, workflow)),
             )
-            .find(|(_, workflow)| {
-                if let Workflow::Command {
-                    command: workflow_command,
-                    ..
-                } = workflow
-                {
-                    workflow_command == command
-                } else {
-                    false
-                }
-            })
+            .find(|(_, workflow)| workflow.command() == command)
             .map(|(workflow_source, workflow)| (workflow_source, workflow.clone()))
     }
 }
@@ -213,7 +198,7 @@ pub fn prompt_chip_logging_workflow(shell_family: ShellFamily) -> Option<Workflo
         return None;
     }
     let log_file_path = crate::context_chips::logging::log_file_path().ok()?;
-    Some(Workflow::Command {
+    Some(Workflow {
         name: "Tail prompt chip log".into(),
         command: tail_command_for_shell(shell_family, &log_file_path),
         tags: vec!["warp".into(), "debug".into()],
@@ -226,7 +211,6 @@ pub fn prompt_chip_logging_workflow(shell_family: ShellFamily) -> Option<Workflo
         author: Some("Warp".into()),
         author_url: None,
         shells: vec![],
-        environment_variables: None,
     })
 }
 

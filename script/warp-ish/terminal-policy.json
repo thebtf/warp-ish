@@ -1,0 +1,3186 @@
+{
+  "schema_version": 1,
+  "observed_upstream_sha": "75f8808a1c94ee54840f517cfff54595589c32a5",
+  "source_repository": "https://github.com/warpdotdev/warp",
+  "stable_tag_pattern": "(?:v?\\d+\\.\\d+\\.\\d+(?:\\+[-.0-9A-Za-z]+)?|v0\\.\\d{4}\\.\\d{2}\\.\\d{2}\\.\\d{2}\\.\\d{2}\\.stable_\\d+)",
+  "stable_tag_note": "Syntactic filter for observed Warp stable tags such as v0.2026.06.03.09.49.stable_00 and stable SemVer. All other tags remain in the observation for review. Tag names alone do not establish release provenance or ordering.",
+  "manifests": [
+    "Cargo.toml",
+    "app/Cargo.toml",
+    "crates/warp_terminal/Cargo.toml"
+  ],
+  "registration_files": [
+    "app/src/lib.rs",
+    "app/src/app_state.rs",
+    "app/src/settings/init.rs",
+    "app/src/root_view.rs"
+  ],
+  "reviewed_terminal_drift": {
+    "dependencies": {
+      "Cargo.toml": {
+        "workspace.dependencies|windows": {
+          "sha256": "fdcaf82973af64e959a5430f15f3afad842462fc6174b591c61b36b9a9657151",
+          "reason": "Native Windows APIs including the console bindings used by the local PTY."
+        }
+      },
+      "app/Cargo.toml": {
+        "dependencies|schemars": {
+          "sha256": "97276281ad925dc935330cc1251d47ec498741f7efb44f09bcbb0c8ca55e4997",
+          "reason": "Enables UUID schemas for the existing terminal storage identifiers after the cloud crate removal."
+        },
+        "target.cfg(all(not(target_family = \"wasm\"), not(windows))).dependencies|app-installation-detection": {
+          "sha256": "a874ba41604523e25fda346d5b1156cd5fab5b503b3c744b213fa04774468cea",
+          "reason": "Restricts the legacy local installation detector to non-Windows native targets."
+        },
+        "target.cfg(all(not(target_family = \"wasm\"), not(windows))).dependencies|http_server": {
+          "sha256": "1348055287cf27019f81514469cdb3036bc235a51d0f761134a77fd34593cffa",
+          "reason": "Restricts the legacy loopback installation detection listener to non-Windows native targets."
+        },
+        "target.cfg(target_os = \"windows\").dependencies|windows": {
+          "sha256": "dc089218ebb847fc2f6f9f979f48b485375cc87420f0567ab14cdb98ac2d4d93",
+          "reason": "Inherits the reviewed native Windows bindings for the desktop application."
+        }
+      },
+      "crates/warp_terminal/Cargo.toml": {
+        "target.cfg(target_os = \"windows\").dependencies|windows": {
+          "sha256": "dc089218ebb847fc2f6f9f979f48b485375cc87420f0567ab14cdb98ac2d4d93",
+          "reason": "Inherits native Windows bindings used by ConPTY console and process creation."
+        }
+      }
+    },
+    "registrations": {
+      "app/src/lib.rs": {
+        "init_calls": {
+          "view_components::keyboard_navigable_buttons::init": "Registers local keyboard navigation for buttons."
+        }
+      }
+    }
+  },
+  "forbidden_packages": {
+    "warp_tui": "built_in_agents",
+    "ai": "built_in_agents",
+    "ai_types": "agent_types",
+    "computer_use": "computer_use",
+    "mcp": "built_in_mcp",
+    "rmcp": "built_in_mcp",
+    "natural_language_detection": "natural_language_routing",
+    "input_classifier": "natural_language_routing",
+    "cloud_objects": "drive_cloud",
+    "cloud_object_client": "drive_cloud",
+    "cloud_object_persistence": "drive_cloud",
+    "cloud_object_models": "drive_cloud",
+    "firebase": "account_auth",
+    "oauth2": "account_auth",
+    "onboarding": "account_agent_onboarding",
+    "warp_graphql": "warp_backend",
+    "warp_server_auth": "account_auth",
+    "warp_server_client": "warp_backend",
+    "warp_multi_agent_client": "cloud_agents",
+    "warp_multi_agent_api": "cloud_agents",
+    "warp_managed_secrets": "managed_cloud_secrets",
+    "warp_harness_usage": "agent_usage",
+    "session-sharing-protocol": "cloud_session_sharing",
+    "voice_input": "cloud_voice",
+    "sentry": "telemetry",
+    "sentry-log": "telemetry",
+    "opentelemetry": "telemetry",
+    "opentelemetry-http": "telemetry",
+    "opentelemetry-otlp": "telemetry",
+    "opentelemetry_sdk": "telemetry",
+    "tracing-opentelemetry": "telemetry",
+    "aws-config": "byo_llm_cloud_auth",
+    "aws-credential-types": "byo_llm_cloud_auth",
+    "aws-sdk-sts": "byo_llm_cloud_auth",
+    "aws-types": "byo_llm_cloud_auth",
+    "computer_use_mcp": "computer_use",
+    "preview_proxy": "warp_backend"
+  },
+  "forbidden_paths": {
+    "warp_tui": "crates/warp_tui",
+    "ai": "crates/ai",
+    "ai_types": "crates/ai_types",
+    "computer_use": "crates/computer_use",
+    "mcp": "crates/mcp",
+    "natural_language_detection": "crates/natural_language_detection",
+    "input_classifier": "crates/input_classifier",
+    "cloud_objects": "crates/cloud_objects",
+    "cloud_object_client": "crates/cloud_object_client",
+    "cloud_object_persistence": "crates/cloud_object_persistence",
+    "cloud_object_models": "crates/cloud_object_models",
+    "firebase": "crates/firebase",
+    "onboarding": "crates/onboarding",
+    "warp_graphql": "crates/graphql",
+    "warp_server_auth": "crates/warp_server_auth",
+    "warp_server_client": "crates/warp_server_client",
+    "warp_multi_agent_client": "crates/warp_multi_agent_client",
+    "warp_managed_secrets": "crates/managed_secrets",
+    "warp_harness_usage": "crates/warp_harness_usage",
+    "voice_input": "crates/voice_input"
+  },
+  "forbidden_source_paths": {
+    "crates/warp_tui": "built_in_agents",
+    "crates/ai": "built_in_agents",
+    "crates/ai_types": "agent_types",
+    "crates/computer_use": "computer_use",
+    "crates/mcp": "built_in_mcp",
+    "crates/natural_language_detection": "natural_language_routing",
+    "crates/input_classifier": "natural_language_routing",
+    "crates/cloud_objects": "drive_cloud",
+    "crates/cloud_object_client": "drive_cloud",
+    "crates/cloud_object_persistence": "drive_cloud",
+    "crates/cloud_object_models": "drive_cloud",
+    "crates/firebase": "account_auth",
+    "crates/onboarding": "account_agent_onboarding",
+    "crates/graphql": "warp_backend",
+    "crates/warp_server_auth": "account_auth",
+    "crates/warp_server_client": "warp_backend",
+    "crates/warp_multi_agent_client": "cloud_agents",
+    "crates/managed_secrets": "managed_cloud_secrets",
+    "crates/warp_harness_usage": "agent_usage",
+    "crates/voice_input": "cloud_voice",
+    "app/src/ai": "built_in_agents",
+    "app/src/ai_assistant": "built_in_agents",
+    "app/src/auth": "account_auth",
+    "app/src/drive": "drive_cloud",
+    "app/src/crash_reporting": "telemetry",
+    "app/src/server/telemetry": "telemetry",
+    "app/src/voice": "cloud_voice",
+    "app/src/server/voice_transcriber.rs": "cloud_voice",
+    "app/src/editor/view/voice.rs": "cloud_voice",
+    "app/src/settings/tui_voice.rs": "cloud_voice",
+    "crates/computer_use_mcp": "computer_use",
+    "crates/preview_proxy": "warp_backend"
+  },
+  "forbidden_features": [
+    "account_first_onboarding",
+    "acp_harness",
+    "active_conversation_requires_interaction",
+    "agent_cli_launch_modal",
+    "agent_decides_command_execution",
+    "agent_harness",
+    "agent_management_details_view",
+    "agent_management_view",
+    "agent_mode",
+    "agent_mode_computer_use",
+    "agent_mode_debug",
+    "agent_mode_evals",
+    "agent_mode_pre_plan_xml",
+    "agent_mode_primary_xml",
+    "agent_onboarding",
+    "agent_prompt_steering",
+    "agent_shared_sessions",
+    "agent_tips",
+    "agent_toolbar_editor",
+    "agent_view",
+    "agent_view_block_context",
+    "agent_view_conversation_list_view",
+    "agent_view_prompt_chip",
+    "ai_context_menu",
+    "ai_context_menu_code",
+    "ai_context_menu_commands",
+    "ai_resume_button",
+    "ai_rules",
+    "am_workflows",
+    "ambient_agents_command_line",
+    "ambient_agents_image_upload",
+    "ambient_agents_rtc",
+    "api_key_management",
+    "ask_user_question",
+    "at_menu_outside_of_ai_mode",
+    "background_computer_use",
+    "billing_and_usage_page_v2",
+    "bundled_skills",
+    "chatgpt_subscription",
+    "cloud_agent_execution_config",
+    "cloud_agent_runners",
+    "cloud_agent_shell_respawn",
+    "cloud_conversations",
+    "cloud_environments",
+    "cloud_mode",
+    "cloud_mode_from_local_session",
+    "cloud_mode_image_context",
+    "cloud_mode_input_v2",
+    "cloud_mode_setup_v2",
+    "cloud_runners",
+    "cocoa_sentry",
+    "codebase_index_persistence",
+    "codebase_index_speedbump",
+    "codex_notifications",
+    "codex_plugin",
+    "context_window_usage_breakdown",
+    "context_window_usage_v2",
+    "conversation_api",
+    "conversation_artifacts",
+    "conversations_as_context",
+    "crash_reporting",
+    "creating_shared_sessions",
+    "cross_repo_context",
+    "ctrl_c_cancels_third_party_harness",
+    "custom_model_routers",
+    "default_waterfall_mode",
+    "diff_set_as_context",
+    "drive_objects_as_context",
+    "external_agent_mode_context",
+    "factory_mcp",
+    "fallback_model_load_output_messaging",
+    "fast_forward_autoexecute_button",
+    "file_based_mcp",
+    "file_retrieval_tools",
+    "full_source_code_embedding",
+    "gemini_enterprise",
+    "global_ai_analytics_banner",
+    "global_ai_analytics_collection",
+    "gpt_configurable_context_window",
+    "grep_tool",
+    "handoff_cloud_cloud",
+    "handoff_local_cloud",
+    "hoa_code_review",
+    "hoa_notifications",
+    "hoa_onboarding_flow",
+    "hoa_remote_control",
+    "image_as_context",
+    "inline_model_selector",
+    "inline_profile_selector",
+    "list_skills",
+    "local_claude_codex_child_harnesses",
+    "local_computer_use",
+    "log_expensive_frames_in_sentry",
+    "loginless_conversion",
+    "mcp_debugging_ids",
+    "mcp_grouped_server_context",
+    "mcp_oauth",
+    "mcp_server",
+    "named_agents",
+    "oz_changelog_updates",
+    "oz_handoff",
+    "oz_identity_federation",
+    "oz_launch_modal",
+    "oz_platform_skills",
+    "pending_user_query_indicator",
+    "predict_am_queries",
+    "preview_urls_mcp",
+    "prompt_suggestions_via_maa",
+    "queue_slash_command",
+    "queued_prompts_v2",
+    "record_app_active_events",
+    "reload_stale_conversation_files",
+    "remote_codebase_indexing",
+    "render_agent_mode_output_markdown",
+    "restore_prompt_on_inline_model_selector_search",
+    "retry_truncated_code_responses",
+    "selection_as_context",
+    "send_telemetry_to_file",
+    "session_sharing_acls",
+    "shared_block_title_generation",
+    "shared_session_long_running_commands",
+    "shared_with_me",
+    "skill_arguments",
+    "skip_firebase_anonymous_user",
+    "skip_login",
+    "solo_user_byok",
+    "suggested_agent_mode_workflows",
+    "summarization_cancellation_confirmation",
+    "summarization_via_message_replacement",
+    "summarize_conversation_command",
+    "supergrok",
+    "sync_ambient_plans",
+    "team_api_keys",
+    "transfer_control_tool",
+    "usage_based_pricing",
+    "viewing_shared_sessions",
+    "voice_input",
+    "warp_managed_secrets",
+    "warping_model_name",
+    "well_known_mcp_ids"
+  ],
+  "source_rules": [
+    {
+      "id": "agent_cloud_modules",
+      "boundary": "startup_modules",
+      "path": "app/src/lib.rs",
+      "pattern": "\\b(?:pub(?:\\([^)]*\\))?\\s+)?mod\\s+(?:ai|ai_assistant|auth|billing|cloud_object|drive|pricing|crash_reporting|input_classifier|remote_server|voice)\\s*[;{]"
+    },
+    {
+      "id": "agent_cloud_initializers",
+      "boundary": "startup_services",
+      "path": "app/src/lib.rs",
+      "pattern": "\\b(?:ai|auth|drive|billing|onboarding)(?:\\s*::\\s*[A-Za-z_]\\w*)*\\s*::\\s*init\\s*\\("
+    },
+    {
+      "id": "telemetry_bootstrap",
+      "boundary": "telemetry",
+      "path": "app/src/lib.rs",
+      "pattern": "\\binitialize_telemetry_collection\\s*\\("
+    },
+    {
+      "id": "persisted_agent_cloud_fields",
+      "boundary": "session_persistence",
+      "path": "app/src/app_state.rs",
+      "pattern": "\\b(?:running_mcp_servers|llm_model_override|active_profile_id|conversation_ids_to_restore|active_conversation_id|team_uid|warp_ai_width|warp_drive_index_width|agent_management_filters)\\s*:"
+    },
+    {
+      "id": "persisted_agent_pane_types",
+      "boundary": "session_persistence",
+      "path": "app/src/app_state.rs",
+      "pattern": "\\b(?:enum|struct)\\s+(?:AmbientAgentPaneSnapshot|AIDocumentPaneSnapshot|AIFactPaneSnapshot|EnvironmentManagementPaneSnapshot)\\b"
+    },
+    {
+      "id": "cloud_agent_settings_schema",
+      "boundary": "settings_registration",
+      "path": "app/src/settings/init.rs",
+      "pattern": "\\b(?:AISettings|CloudAgentSettings|CloudPreferencesSettings|WarpDrivePrivacySettings|SharedSessionSettings|WarpDriveSettings)\\s*::\\s*(?:register|register_and_subscribe_to_events)\\s*\\("
+    },
+    {
+      "id": "auth_cloud_root_services",
+      "boundary": "root_view_startup",
+      "path": "app/src/root_view.rs",
+      "pattern": "\\b(?:AuthManager|CloudPreferencesSyncer|UserWorkspaces)\\s*::\\s*handle\\s*\\("
+    },
+    {
+      "id": "auth_root_views",
+      "boundary": "root_view_startup",
+      "path": "app/src/root_view.rs",
+      "pattern": "\\b(?:AuthView|AuthOverrideWarningModal)\\s*::\\s*new\\s*\\("
+    }
+  ],
+  "observed_files": {
+    "Cargo.toml": {
+      "sha256": "655479da29cd1dc03ad5d945ff77a5e5e8856993d7eadb2b89d68fca19e4d1f1",
+      "dependencies": {
+        "workspace.dependencies|ai": {
+          "sha256": "cd50eff4dde6646c0f97817bf5f013718e41b2b27ee116609c4e3ed312106a0e"
+        },
+        "workspace.dependencies|ai_types": {
+          "sha256": "1c69ec9775bb3ea0b527238491b60b68a87f185cace23c727c647d94e2bffb63"
+        },
+        "workspace.dependencies|anyhow": {
+          "sha256": "4e3043229142b64d998563bc543ce034e0a2251af5d404995e3afcb8ce8850df"
+        },
+        "workspace.dependencies|app-installation-detection": {
+          "sha256": "a874ba41604523e25fda346d5b1156cd5fab5b503b3c744b213fa04774468cea"
+        },
+        "workspace.dependencies|arboard": {
+          "sha256": "5db7ae6d5ca72e9b50c8ab4d1da5c28dfad7e78238182fa97335f76a496de8aa"
+        },
+        "workspace.dependencies|arborium": {
+          "sha256": "cf1033343dea72848ada023de7d78bae8ef4beb1a76550a77a0475bece72db16"
+        },
+        "workspace.dependencies|arrayvec": {
+          "sha256": "71ce40501843abfbeb38219044addf80d8610523fd831645b9c6c2b021f1a5f6"
+        },
+        "workspace.dependencies|ashpd": {
+          "sha256": "246c24904f5de79534adf04148d821693fb509a357f5adc79d370d44a7ed4a30"
+        },
+        "workspace.dependencies|asset_cache": {
+          "sha256": "05a32709def1781215017fc6cec6ca85d6b87b648f066ebe6e6700e1a8d5902a"
+        },
+        "workspace.dependencies|asset_macro": {
+          "sha256": "c281cbb6e03ca3a03c7c76f2347d2eb9c67f8669711a06cee2ec246442e1f991"
+        },
+        "workspace.dependencies|async-broadcast": {
+          "sha256": "a2eff284ff918a6849e8b824fe7772ab49aab42505cc5d87599d886cb9ade359"
+        },
+        "workspace.dependencies|async-channel": {
+          "sha256": "44406a8c68c27a957c5f875618268a648680cad1008d9d4376817b331fa8e3c8"
+        },
+        "workspace.dependencies|async-compat": {
+          "sha256": "5b92b92f35dad3210aadd7dd1dfac28aa571e94330d6fca0aedde799e7ba4eea"
+        },
+        "workspace.dependencies|async-fs": {
+          "sha256": "c8c1a5de8c3f382d82998539c933d9cde29eab083da80a1012f5faff131222e0"
+        },
+        "workspace.dependencies|async-io": {
+          "sha256": "9638ebc50d15b14e7b85ef526f05f8d635f4b05bef324d0e847e3126d90d9426"
+        },
+        "workspace.dependencies|async-process": {
+          "sha256": "db8d50c4cb86d946572fc1d91017b211bbf31f07365888a5e7aeed5952c8eb08"
+        },
+        "workspace.dependencies|async-recursion": {
+          "sha256": "662b20289aeb1a425be4082c8c0065f68818c127fd3b35e30b11f8bf03b2bdcb"
+        },
+        "workspace.dependencies|async-stream": {
+          "sha256": "e4a9f0a7f873a4e0837c8ab75c4e8eb92912581f70ddddc7edbe0033a992adab"
+        },
+        "workspace.dependencies|async-task": {
+          "sha256": "06fbad8d45a9d2c2caef69520a5bb616298097354d4d08ae25546f61f66e33aa"
+        },
+        "workspace.dependencies|async-trait": {
+          "sha256": "d025813ff5d1ed494e4313f2e2ac1e2faddc95dcf1b7c38626469dfc4387cfb0"
+        },
+        "workspace.dependencies|axum": {
+          "sha256": "747166500dc8e158fd312fd70866dd1538a06a690f6a96b178d9fca1938966bf"
+        },
+        "workspace.dependencies|backtrace": {
+          "sha256": "e4d25e693cc9708e2ff82761f9a1c40fa3df6c9f121c2bda4910b4c0a84112ca"
+        },
+        "workspace.dependencies|base64": {
+          "sha256": "0c709c6643a9c322de0e2940608bf996a0ce9520553af72bfdc18ebbedda5953"
+        },
+        "workspace.dependencies|bincode": {
+          "sha256": "7b81bc58e6c8ba000e12377276caee1ca73e2c29f0d84907054ced5605c1556e"
+        },
+        "workspace.dependencies|bitflags": {
+          "sha256": "0ebcba0e8dfb9c7bf04acb67f0f1e8c8fa84040510588138fa61f7dbb29b3742"
+        },
+        "workspace.dependencies|bitflags-serde-legacy": {
+          "sha256": "da2ec7fee713eb694c2690fcb946820a6c12f0cad10acdfa4bc650a1564a72f5"
+        },
+        "workspace.dependencies|block": {
+          "sha256": "0361f1b50091802ac336667825cbf3910db6dfc521a2d2a800a824200e8b48a6"
+        },
+        "workspace.dependencies|blocking": {
+          "sha256": "97b1956d0aa646f0ce81722ac5a634bde75ae126c861a66d95e03ce9eb00a362"
+        },
+        "workspace.dependencies|bounded-vec-deque": {
+          "sha256": "275de2da62a30ec3b67dd9080931c351b347d2521a05f8443f3a1f8cdcded8de"
+        },
+        "workspace.dependencies|build_cache": {
+          "sha256": "c26aa9c77eafffbc7ae19259a64ca7097350de31c088b8864c00effb7d4adb9a"
+        },
+        "workspace.dependencies|bytemuck": {
+          "sha256": "b34485b6cfea7c3867756789cc96ee20d917025d3e392ec157d2d46fdded325e"
+        },
+        "workspace.dependencies|bytes": {
+          "sha256": "62956dd2ccb43596d4091e18bff93d6dbb834fafe9c594048b6d5e5476d344b8"
+        },
+        "workspace.dependencies|cfg-if": {
+          "sha256": "662b20289aeb1a425be4082c8c0065f68818c127fd3b35e30b11f8bf03b2bdcb"
+        },
+        "workspace.dependencies|cfg_aliases": {
+          "sha256": "3d41678ec5c59d719852de02e86b1033910db2ea5e7fb8d61431b697df3104f3"
+        },
+        "workspace.dependencies|channel_versions": {
+          "sha256": "8f022fef667ec777a5f71beb2b26af2269c3701cc91dcb7a6eddb70db443dfe0"
+        },
+        "workspace.dependencies|chrono": {
+          "sha256": "e5db223c5b8121f2860a534d4ef4572ae3cc7d7da4cec72f055a7a773f9e3472"
+        },
+        "workspace.dependencies|clap": {
+          "sha256": "edd4b15f5b3deafc5a8f327ca34da4c0ebbbd016a3d1d01d91c5703051745e8f"
+        },
+        "workspace.dependencies|cloud_object_client": {
+          "sha256": "4f933a8f8b137e043d30bef1911c6034edd6c7c633137ca9a32a33f49769bd03"
+        },
+        "workspace.dependencies|cloud_object_models": {
+          "sha256": "1c5396be1744520c2df85ef6cb602529af93cd52ede7b3be7af4e8c4f131c35b"
+        },
+        "workspace.dependencies|cloud_object_persistence": {
+          "sha256": "a8689a14beff2901dab33ff88e265221c3e2ea0ca74eb1aefcf4fe21ed53f307"
+        },
+        "workspace.dependencies|cloud_objects": {
+          "sha256": "0ab671169c0ef7b382c1d4b09aa65bf0723a2099e590d1c2a91549b5357e483e"
+        },
+        "workspace.dependencies|cocoa": {
+          "sha256": "26ead877dad5d2c6ca573f1195893643ff138e98950c1a758e3c2e9d6d0891ca"
+        },
+        "workspace.dependencies|command": {
+          "sha256": "78a713192c06725d4c8c2544c7817c3349ed7cafaa0fcf85ec55973bcb154c34"
+        },
+        "workspace.dependencies|command-corrections": {
+          "sha256": "b5a6e30ebf248e3a3c592fee5f12ca07beb1dcb12c865060cf7176c9b695464a"
+        },
+        "workspace.dependencies|computer_use": {
+          "sha256": "f0fb0fde79a92bc7e873f9141d5f83a691d976cc50abe7b0c3bb14c3a0f552b3"
+        },
+        "workspace.dependencies|concat-idents": {
+          "sha256": "c9a307c1d5055eca71d853c35749344b6fe9d190c2c396031f43c33950f4924f"
+        },
+        "workspace.dependencies|core-foundation": {
+          "sha256": "b76759025187a85bd0e67d52d82eee4d04b8c4f7e22c5ecf6435fcdc80da51d8"
+        },
+        "workspace.dependencies|crc": {
+          "sha256": "f28ad6e7ae4f30d5b527150e4f4ae952a09f5cd6f45b80eef3b4dfa85a27859f"
+        },
+        "workspace.dependencies|ctrlc": {
+          "sha256": "d927068fb15534913c05d0d601e59b9a55c3c04a76ef017d3de4d51777628b2e"
+        },
+        "workspace.dependencies|cynic": {
+          "sha256": "5983d9246ecea3804cb2be0d9822e698237eb838f9cab9894d2c974e83a3762d"
+        },
+        "workspace.dependencies|cynic-codegen": {
+          "sha256": "691665e56d1f5045d9aca9c65c58e065e21205c19f02671d8cb525d118829012"
+        },
+        "workspace.dependencies|dashmap": {
+          "sha256": "615d2a097dd22d392c5ddb4741953348c362bdeb4b176090241c661d34d37b55"
+        },
+        "workspace.dependencies|derivative": {
+          "sha256": "bcdc0a4f69f3e0a387395fb2861eae37424a1d647e0ead70f0f450c4bfa1aba6"
+        },
+        "workspace.dependencies|derive_more": {
+          "sha256": "7274aa36530371d3ff28d2d7c4783578f2430c578a414692ea898e4634138562"
+        },
+        "workspace.dependencies|diesel": {
+          "sha256": "1647046a5b2aaca46bf91b8e41fbb88c3f5defd238488011b36a756b426adcef"
+        },
+        "workspace.dependencies|directories": {
+          "sha256": "77334743508a112bdce7a06d067e8208f149897ddf0139019d7c932f8ff27a57"
+        },
+        "workspace.dependencies|dirs": {
+          "sha256": "d3925fe1a114105940140f6c73a76f1255c314c14c19f657bc80f38de9ac9159"
+        },
+        "workspace.dependencies|dispatch2": {
+          "sha256": "0438507f8980351b9b269cd99e5cf3fc40c48e679613dc0367d13f5f2474e199"
+        },
+        "workspace.dependencies|dunce": {
+          "sha256": "c1cac915ce817e54a91c0ee2f642e2e2ddceb23a6d820f68e6a42cc307d523e5"
+        },
+        "workspace.dependencies|enum-iterator": {
+          "sha256": "438e23852eb6501fb000c4d5fe14b6a3c2eab73fcba9829acde93e01e7ff3eef"
+        },
+        "workspace.dependencies|env_logger": {
+          "sha256": "f407b71b7e106887e64be1001f9ddbcab633557977fd07a3366a295a09539515"
+        },
+        "workspace.dependencies|event-listener": {
+          "sha256": "4711eee7fac9701a137b75b5a0086b505c7ea948b9b267147390726653e55421"
+        },
+        "workspace.dependencies|field_mask": {
+          "sha256": "0e13ab390642d582e2f756274b959d44580c97df981c9906722e8a99964396d7"
+        },
+        "workspace.dependencies|firebase": {
+          "sha256": "e2a93b7b02bbafab7b223a9ff0a47609304e351b8d31677408316d491aa51373"
+        },
+        "workspace.dependencies|float-cmp": {
+          "sha256": "3041b1b566a049e04d75628f1ddfae1cb0964768150a41f244ee8f2ce32de1ea"
+        },
+        "workspace.dependencies|font-kit": {
+          "sha256": "39b7b27ab77cabbf70dad9b58d4bc8d35c1d3d4148f0492bd1c216a5369459c5"
+        },
+        "workspace.dependencies|fs4": {
+          "sha256": "e300a35269e9fb260c821845e94070b36d10c0045cc5b65738802381a8a64ba6"
+        },
+        "workspace.dependencies|futures": {
+          "sha256": "5e21b45eeb612bf0d8cb456712dafdce3db9d5877cf4ee266b6ad967624fc77a"
+        },
+        "workspace.dependencies|futures-lite": {
+          "sha256": "d0f3f48c5f1e3da4c297e65a9c22f9492a8320ee427f057bff24918050b2c2ce"
+        },
+        "workspace.dependencies|futures-util": {
+          "sha256": "d820b59332b2092e1abbea3346233e1ca3d76ae2db93fde53d60805910530435"
+        },
+        "workspace.dependencies|fuzzy_match": {
+          "sha256": "bfae787350de90d6ab9e64fcaa245efd88fe5dda14e5e040b619ee649fa94ff8"
+        },
+        "workspace.dependencies|get-size": {
+          "sha256": "f3287461185aff4c43a7031332c19a52750b635cdac99f8a1c208ce17c203906"
+        },
+        "workspace.dependencies|getset": {
+          "sha256": "da2ec7fee713eb694c2690fcb946820a6c12f0cad10acdfa4bc650a1564a72f5"
+        },
+        "workspace.dependencies|globset": {
+          "sha256": "5dd5160a5cfdd2867fbc9234f0b4a787a2d0d90aaf1cd81591541505a63b7cc8"
+        },
+        "workspace.dependencies|gloo": {
+          "sha256": "e57c2905b85cea8ed532ec8d7057bfdadfcbda2c69976857cb78934458fa99fc"
+        },
+        "workspace.dependencies|graphql-ws-client": {
+          "sha256": "542cc809190a32965ea25ca40b9596ce0bf9317f8e480197c00e293e2b054a48"
+        },
+        "workspace.dependencies|handlebars": {
+          "sha256": "295ba3bce1736475a380e105851b51cb051041fed66d08b9ef3730b82f25ba51"
+        },
+        "workspace.dependencies|hashbrown": {
+          "sha256": "f2ae8013e27832e5121a4c05a4254017ccf652c0d11eddb779b0d6bab430698d"
+        },
+        "workspace.dependencies|hex": {
+          "sha256": "c2d3c8adcf8d7e6ed91d63c4c0ec70cbab2ccacba77fa4a0f86849a80af1268b"
+        },
+        "workspace.dependencies|html5ever": {
+          "sha256": "46842379a053ca218621e67fc543b2831679d9777fe1942a9a24e98465c4b8e4"
+        },
+        "workspace.dependencies|http": {
+          "sha256": "aa3bbf7b3112fddfcabf8916223c063318e7a012efaba8f2d11b999028e5c435"
+        },
+        "workspace.dependencies|http_client": {
+          "sha256": "addf02d64ca63f11db9d87c9aefc65e19ce94d44d1ddec9c86d3a1586e3cd832"
+        },
+        "workspace.dependencies|http_server": {
+          "sha256": "1348055287cf27019f81514469cdb3036bc235a51d0f761134a77fd34593cffa"
+        },
+        "workspace.dependencies|humantime": {
+          "sha256": "b5195aea68aa8fada5f0b9c8fe18567d8320aa1cca246356bb0fd19a983952e1"
+        },
+        "workspace.dependencies|hyper": {
+          "sha256": "c5300642cfa1adb8d1d4d67517165b04e355115206115e493fa520f618a0d09d"
+        },
+        "workspace.dependencies|image": {
+          "sha256": "6f2624a81a6d1d442c641f83de05d0ccef16a07f26372be2d3bcc2b663ed550c"
+        },
+        "workspace.dependencies|input_classifier": {
+          "sha256": "fe5406aeefc09859005b312581bc0b958097885515d58e2e32a6ffced53e4504"
+        },
+        "workspace.dependencies|instant": {
+          "sha256": "a2665098210021c32456dd00e7200996db063f2936a6d9507b0495ddb4006244"
+        },
+        "workspace.dependencies|integration": {
+          "sha256": "a78b87246831a82fb18541a888ca326aae9bdc00638f379c07b09ce7ba1fe2d9"
+        },
+        "workspace.dependencies|ipc": {
+          "sha256": "fd0af1a52ff780ab906a13b8b5fd651b2f9bd5eb1b0a24e4b7cf024780fcaed8"
+        },
+        "workspace.dependencies|ipynb_parser": {
+          "sha256": "f759b5815966b8934aa016517ac9cda965cc506140c5f5e1884fa748e8c0aff9"
+        },
+        "workspace.dependencies|iso8601-duration": {
+          "sha256": "bbe155ca34951b6e41db7db790108c0c6e4eafafa92475a0268dc4e6135d7db9"
+        },
+        "workspace.dependencies|itertools": {
+          "sha256": "e6e6c7b357f78b74d63c7206b5ac12052ada06168a795e0c9833f581105161bb"
+        },
+        "workspace.dependencies|jaq-all": {
+          "sha256": "dfab0e4cd8ddec4a9d644835b66705743688f1f581229bd7e8ef992be35c5b09"
+        },
+        "workspace.dependencies|jaq-json": {
+          "sha256": "fca14bd2e4f89ee14be2fa734c4f299db5afa7b7cbd3e39c87323964e1ab5ad4"
+        },
+        "workspace.dependencies|jsonrpc": {
+          "sha256": "69314405b6d22247aec6929d40185010c60f8346670e59c59f8011cb4887b1eb"
+        },
+        "workspace.dependencies|jsonschema": {
+          "sha256": "35c7ec88088d9187b05102a7d1ef87c924c01ad735df62ed1e4002ce0f441460"
+        },
+        "workspace.dependencies|languages": {
+          "sha256": "339a87f72bc978575c9feb7e05b27f5987b73c4d51dbe57d6ccba103c423e302"
+        },
+        "workspace.dependencies|lasso": {
+          "sha256": "732852a76ef54bc88f56f364b17194858ffba3c45d9939b7377c72d93af09ee9"
+        },
+        "workspace.dependencies|lazy_static": {
+          "sha256": "214652dfeb982e30d58a3f18e3378e7f8ad8d2cbf518ca5e83f584990dcaff30"
+        },
+        "workspace.dependencies|libc": {
+          "sha256": "71fcfccba860bbc989888f475f13f7259921155ceb5bbb1ada2ee15028cdbb20"
+        },
+        "workspace.dependencies|libtest-mimic": {
+          "sha256": "02c7fc878e498e0681e94de86d50c1e92bf3cf12fb199b059b2cad679a0b1169"
+        },
+        "workspace.dependencies|line-ending": {
+          "sha256": "214652dfeb982e30d58a3f18e3378e7f8ad8d2cbf518ca5e83f584990dcaff30"
+        },
+        "workspace.dependencies|local_control": {
+          "sha256": "f5f4adf8b7e0fce9d91dc664271ccef0acf8fb55936fd5a7c9e685785826adbf"
+        },
+        "workspace.dependencies|log": {
+          "sha256": "f9f789d2b34aa67c877fea6e7d0cbaf07e2e1fbba4619f724cdcb7f317f26389"
+        },
+        "workspace.dependencies|lsp": {
+          "sha256": "55a7f6361660f25a03f36a2c60234d8eb1bb541b83a19087385eab51f2dbdbdc"
+        },
+        "workspace.dependencies|markdown_parser": {
+          "sha256": "ea6a4e073c4431bce4ad0e8fc62eaddecce4ed57b1e41d5ac8f4b96c8eda7768"
+        },
+        "workspace.dependencies|mcp": {
+          "sha256": "34b9b6c456490e36de8ee802d61823ce05c52362d57cef729637f50c602e894e"
+        },
+        "workspace.dependencies|memchr": {
+          "sha256": "3f88e3e972baf86efee21ccf7db6f413b2a2e853f483ff17ca5139307854c44b"
+        },
+        "workspace.dependencies|memo-map": {
+          "sha256": "dd395d41f72cbbf6705e51cff1f43e430a77c353aa98682d24ea7ce3fe24c026"
+        },
+        "workspace.dependencies|mermaid_to_svg": {
+          "sha256": "c266ef93b8fd53b63ad4f5cd5fdf424afd765d184c5a4dc86cc3d53c32ddae86"
+        },
+        "workspace.dependencies|mime_guess": {
+          "sha256": "23524be607befdba6ffd173293692497ab794a5df3ddad253adbbc8057e9fac5"
+        },
+        "workspace.dependencies|minimp4": {
+          "sha256": "3c6982404184da7f005dd57f14d66a0f401a154f7c7ec0ef5d40c583bacbcf41"
+        },
+        "workspace.dependencies|mockall": {
+          "sha256": "301fff0e4ec78388bf438c3092087f3fa031d83a3873540152e789160b0b0264"
+        },
+        "workspace.dependencies|mockito": {
+          "sha256": "75fef277a4c0135ccef512d8a708d5a7611586137c54d0594b4690ffbe0a860b"
+        },
+        "workspace.dependencies|natural_language_detection": {
+          "sha256": "2ed6e4494700486f92f6d83c1cc0cdb3b67b5829c5ea2b98afa92622874785d6"
+        },
+        "workspace.dependencies|nix": {
+          "sha256": "31c63c48f3f59d770505fe651d11ac420ebf84418851d866a3c31f5ceb16746e"
+        },
+        "workspace.dependencies|node_runtime": {
+          "sha256": "dd988b18392124554caa0a199d5608b01e548431bf78594fc437736a01c85860"
+        },
+        "workspace.dependencies|nom": {
+          "sha256": "c7ef79f03775d16d634f08f27d6f37d2f6e4d25ab08c491c29a933ab9ac9708c"
+        },
+        "workspace.dependencies|notify-debouncer-full": {
+          "sha256": "ab8edc0e92c5f3382ad2a05aa453455c9e87af5722ebea27f65ea4b8b9bc3501"
+        },
+        "workspace.dependencies|num-traits": {
+          "sha256": "f4df8cce100ab9a312be1fdebd3f27281b81b2ecea0ef8d522a6d51689b10878"
+        },
+        "workspace.dependencies|oauth2": {
+          "sha256": "713b201b92236f9051fabbb5ee667d32a8c501e662a18b71f3595ccb66ea8a94"
+        },
+        "workspace.dependencies|objc": {
+          "sha256": "f4df8cce100ab9a312be1fdebd3f27281b81b2ecea0ef8d522a6d51689b10878"
+        },
+        "workspace.dependencies|objc2": {
+          "sha256": "dd9b64422c10595c57963c20196fdddda56d01e42896acdf576a3e1db5db4855"
+        },
+        "workspace.dependencies|objc2-app-kit": {
+          "sha256": "ee7d2d699268cbd6e76c2cd9566443f4c55b7208f50c26aa6a76b0be69243d4f"
+        },
+        "workspace.dependencies|objc2-av-foundation": {
+          "sha256": "ffb29475819959f7f9fd2e947cd5a6d6d01416fdcf628b6ecbc289d567333e2b"
+        },
+        "workspace.dependencies|objc2-core-foundation": {
+          "sha256": "3586fe81748c7cb00d42cf1e8e3004d48819f033ac3588eba23be50aa1188bdf"
+        },
+        "workspace.dependencies|objc2-core-graphics": {
+          "sha256": "3586fe81748c7cb00d42cf1e8e3004d48819f033ac3588eba23be50aa1188bdf"
+        },
+        "workspace.dependencies|objc2-foundation": {
+          "sha256": "cd33660b97979252504d561fa7791a61c59fbc361df7919e91457f1ecb86739a"
+        },
+        "workspace.dependencies|objc2-metal": {
+          "sha256": "ffb29475819959f7f9fd2e947cd5a6d6d01416fdcf628b6ecbc289d567333e2b"
+        },
+        "workspace.dependencies|objc2-quartz-core": {
+          "sha256": "ffb29475819959f7f9fd2e947cd5a6d6d01416fdcf628b6ecbc289d567333e2b"
+        },
+        "workspace.dependencies|onboarding": {
+          "sha256": "3d714c6dac03832a2de8824bc6e80f23b598711f076d202b1224e2446f5afd26"
+        },
+        "workspace.dependencies|once_cell": {
+          "sha256": "d12c706220cc88b1c1baa26531969b414484299169dbcfa85da53442a66b89db"
+        },
+        "workspace.dependencies|openh264": {
+          "sha256": "5d6ae61b3a7afa0fdaa9a56606fab7b86386ebc34a3fd024fc1a5b4753c37211"
+        },
+        "workspace.dependencies|opentelemetry": {
+          "sha256": "42d83d82a4733acdc7a6ffdf77e98270994222b4d10b822809a4f72b80489dc7"
+        },
+        "workspace.dependencies|opentelemetry-http": {
+          "sha256": "e370f2b49e9f2cd1534794e77534271dfee79c6ae653fa70830ebb139a4ac510"
+        },
+        "workspace.dependencies|opentelemetry-otlp": {
+          "sha256": "691426dfeafced9a67c9470d19766d3edaaedebba66ec99c52e4f7192ffac6fc"
+        },
+        "workspace.dependencies|opentelemetry_sdk": {
+          "sha256": "6a9bc0aa1fa3a753ac3e3744052545d4a7ede0dea28499a8f5007451d509d227"
+        },
+        "workspace.dependencies|ordered-float": {
+          "sha256": "57891294d5e1eb2f58cf3d749b2e317d7942aaa0f18bcf77b7197032f9d7ea1f"
+        },
+        "workspace.dependencies|parking_lot": {
+          "sha256": "6c64ef18a4d91814b64e2c258887400d65110764ed9c5cbc75fb08b9e71f03da"
+        },
+        "workspace.dependencies|parquet": {
+          "sha256": "1fb692b46a24f26d54f8ae07835e205369e60ef091ff3c3f829a2d505816130e"
+        },
+        "workspace.dependencies|pathfinder_color": {
+          "sha256": "122fad8fe4bd6465f0cf9fec2ec63007cf671c250ab7dd891f4f102cbfca82f9"
+        },
+        "workspace.dependencies|pathfinder_geometry": {
+          "sha256": "d6afc30dd08180f18ed5bb0148127b06c535f1e6d9ed4ec56ad915624391179c"
+        },
+        "workspace.dependencies|persistence": {
+          "sha256": "f47363c6f8aada097b4ec67e4e0a8be31d260b6854006d95ffe9c8aed60e98d8"
+        },
+        "workspace.dependencies|pin-project": {
+          "sha256": "7f803779333bf5afc76b3ca4b0dde98f2cd32b46f291ac15221dc651aba0fc64"
+        },
+        "workspace.dependencies|pprof": {
+          "sha256": "4249c9a0ee752fd6dfe55d97af205d2eb2f317a3e2cd83a01d8d74a709928790"
+        },
+        "workspace.dependencies|prevent_sleep": {
+          "sha256": "f33825e573d4a75e3184b9f607e2fa964e2ac518d0893702bb893db59a5a6b88"
+        },
+        "workspace.dependencies|prost": {
+          "sha256": "3a7a9276f2433604407b804b2dccb1c892dfd4a1a3ff97dcaf1bd095dff4b44a"
+        },
+        "workspace.dependencies|prost-build": {
+          "sha256": "3a7a9276f2433604407b804b2dccb1c892dfd4a1a3ff97dcaf1bd095dff4b44a"
+        },
+        "workspace.dependencies|prost-reflect": {
+          "sha256": "3b97cf01ff08c30c6cac6efa4ec4fc42cd46997c89b18f53ff8a008bf0a97a48"
+        },
+        "workspace.dependencies|prost-types": {
+          "sha256": "3a7a9276f2433604407b804b2dccb1c892dfd4a1a3ff97dcaf1bd095dff4b44a"
+        },
+        "workspace.dependencies|rand": {
+          "sha256": "661c073dd2b321172411c4fcee0da87a2f22c18a3d57d8d1ede00a450e1ae580"
+        },
+        "workspace.dependencies|rangemap": {
+          "sha256": "e392247904fdaff9add6ebe957e513c93eace29463ef4eba9117c95ef723f2d6"
+        },
+        "workspace.dependencies|rayon": {
+          "sha256": "a573cc2f1c6f5c16d02985f2c3fa4cae330a939f0fe9f3f59f1a5e0133058e63"
+        },
+        "workspace.dependencies|regex": {
+          "sha256": "378b695dce30e47bc2f55c225fcf898effd1f9c8be94c649e5735f7a860bf2b6"
+        },
+        "workspace.dependencies|regex-automata": {
+          "sha256": "c37c7325a29ca1a38a91fad97419dac37da270c558a13eadd1f86654d6aa551b"
+        },
+        "workspace.dependencies|regex_dfas": {
+          "sha256": "2301a93d9113c3cb897702a7fdc6dea7b7c03b0dd7d45808bd8d46778d12a45d"
+        },
+        "workspace.dependencies|remote_server": {
+          "sha256": "315687ba19308b9637703550e857bdd9cb153e43ea354a2e3be755fc7eba814f"
+        },
+        "workspace.dependencies|repo_metadata": {
+          "sha256": "1fb436da6892fbc8b543e217d7ce5fecc5a68dc812b5d6f2c1a11e039f17b639"
+        },
+        "workspace.dependencies|reqwest": {
+          "sha256": "263f51aadbd6f4ba44ebde31bd81f7f93608b76aea09e1a54a5093a470f804e3"
+        },
+        "workspace.dependencies|reqwest-eventsource": {
+          "sha256": "829d731d7ed7c02d2c60f5c705fbdfbd4cc9ec714c826a2e4122a222033cc496"
+        },
+        "workspace.dependencies|resvg": {
+          "sha256": "8b1d2437e20d3454b4d53139e37982c96ad77359f54df7c5f141e707651692d3"
+        },
+        "workspace.dependencies|rmcp": {
+          "sha256": "d4a82aeb356d39c8cfc1aabc95c83b1091530fd3af7a37db445af526c8e9581f"
+        },
+        "workspace.dependencies|rust-embed": {
+          "sha256": "4afc449e1bf8c7d7f83912ea3dfda3e24485d5a88fc7bec6ecfaa8069143eab8"
+        },
+        "workspace.dependencies|rustc-hash": {
+          "sha256": "3067a0a44fc26c9833ad8b04076ddc1524f01fe851e3383dc6cc2c2bbd04934b"
+        },
+        "workspace.dependencies|rustls": {
+          "sha256": "c711b26fcc3b412b223c7473aae774e9b1d463a80ec8d33e186a9a3d06a2ff03"
+        },
+        "workspace.dependencies|schemars": {
+          "sha256": "3dc183aaf8461b727d8c1f6ec5d4ac597ef0815a95007870c7526675be2ba2aa"
+        },
+        "workspace.dependencies|secret_redaction": {
+          "sha256": "5b913b91ae9e59a25711852886f324f25a47ba987aa6e85374e8989864a806fb"
+        },
+        "workspace.dependencies|sentry": {
+          "sha256": "37b1dbb965c6643dfa4ee828ecb26f159a7884de92b8962ac585cc1c5bd78428"
+        },
+        "workspace.dependencies|sentry-log": {
+          "sha256": "8b1d2437e20d3454b4d53139e37982c96ad77359f54df7c5f141e707651692d3"
+        },
+        "workspace.dependencies|serde": {
+          "sha256": "1fab9ac5326bb2ac614ddc77bf968bfa215d787e5d671da6ece084c5dba06fac"
+        },
+        "workspace.dependencies|serde-bytes-repr": {
+          "sha256": "5d9b3810e547b5e5b8e5774cdd18b47ead5ad654201407dc7244a0099fcbb7a7"
+        },
+        "workspace.dependencies|serde_bytes": {
+          "sha256": "4e7cba78b015e7129c09142c3bd29eb82455d06f8e3ecd0409c09d82147e17ff"
+        },
+        "workspace.dependencies|serde_json": {
+          "sha256": "5d0f806dc153c406e5b2a5e99a2b39fc291d846224cc138038a8a69747f439fe"
+        },
+        "workspace.dependencies|serde_urlencoded": {
+          "sha256": "119566e0fc12dc821cfb132c2d092229130ef8667ce80c063f9d16697861e480"
+        },
+        "workspace.dependencies|serde_with": {
+          "sha256": "554c75372863978a6f9c9060fc1c8cb62bf7da20bca2b38694f61d6c44f06899"
+        },
+        "workspace.dependencies|serde_yaml": {
+          "sha256": "5d6ae61b3a7afa0fdaa9a56606fab7b86386ebc34a3fd024fc1a5b4753c37211"
+        },
+        "workspace.dependencies|session-sharing-protocol": {
+          "sha256": "bcee374fc1ae66f07bdc663c0d2ef1f81c21dc4fee95d4e525cd7e0cc507733b"
+        },
+        "workspace.dependencies|settings": {
+          "sha256": "1915b37294fb07f93fa94725fdf7359106e7b633938d06ca4654697e093e42cd"
+        },
+        "workspace.dependencies|settings_value": {
+          "sha256": "c92ab74a07cf64f7f498483b2fa16110147d74b6ad6b7f3ff8b8bd278e130920"
+        },
+        "workspace.dependencies|settings_value_derive": {
+          "sha256": "c306b8681f763fca15c27eb6e30165b6a1d01c6b9e94706745a232c7f6cac15b"
+        },
+        "workspace.dependencies|sha2": {
+          "sha256": "56ecf69b573448828dcc4a1d42aa747eaad647f6d2eab2f6ebeeee8eaed861f9"
+        },
+        "workspace.dependencies|shellexpand": {
+          "sha256": "24a67de8af3ef9b2c74b358c382f53c247bf8986dbf882f24901a03b4ed7331b"
+        },
+        "workspace.dependencies|similar": {
+          "sha256": "07967b62b786323c60201aee3c34d6846d33b2574b05f6ceb83541cf08a7d710"
+        },
+        "workspace.dependencies|simple_logger": {
+          "sha256": "e3a95291e9b9cb33c3f9fe1dee1313ed90eba76a803d072c60a1b3f1fa015488"
+        },
+        "workspace.dependencies|simplelog": {
+          "sha256": "8690b6bb17aafe6e6b8bf2b09922b9b8466307f6fedeb1ba4804804302f7a16d"
+        },
+        "workspace.dependencies|smallvec": {
+          "sha256": "da983c5cc16eef0aeebf15cd3c0de165efe84261b280c708e7375b552defae7f"
+        },
+        "workspace.dependencies|smol_str": {
+          "sha256": "23d402f47bfc54380f03e6edbc47930a7d41e1007e25a52a3a13c7a6e03e4a47"
+        },
+        "workspace.dependencies|static_assertions": {
+          "sha256": "aa3bbf7b3112fddfcabf8916223c063318e7a012efaba8f2d11b999028e5c435"
+        },
+        "workspace.dependencies|streaming-iterator": {
+          "sha256": "73f538aca74d431a4fcc552c88399f7eeb60dd29debbf39e8963d86a8f21e9c4"
+        },
+        "workspace.dependencies|string-offset": {
+          "sha256": "f8777ca2d21b49e5203a13f5f2ba3f1bf70abe8ac45678c51c9951b4de795467"
+        },
+        "workspace.dependencies|strsim": {
+          "sha256": "4e7cba78b015e7129c09142c3bd29eb82455d06f8e3ecd0409c09d82147e17ff"
+        },
+        "workspace.dependencies|strum": {
+          "sha256": "2edfd629a4fae7d9a456b8652cd53cebe817e5558cd521fb2308c605c6e34412"
+        },
+        "workspace.dependencies|strum_macros": {
+          "sha256": "2edfd629a4fae7d9a456b8652cd53cebe817e5558cd521fb2308c605c6e34412"
+        },
+        "workspace.dependencies|sum_tree": {
+          "sha256": "baf064052c46473f31718c29cb5d314c5d7ed69a8dd0a5675de9dee7a57027ba"
+        },
+        "workspace.dependencies|syntax_tree": {
+          "sha256": "2604452b8aa5a6357509a3a1d034ce6087aaebe3a643d6e15ef4d88d34a7fa52"
+        },
+        "workspace.dependencies|sysinfo": {
+          "sha256": "ae1c19d0942dfdf1520d351eb7257190aeb5acbe84a7b82c3f98259a74406511"
+        },
+        "workspace.dependencies|tempfile": {
+          "sha256": "11de9cf4c28ca90d9843e7783f00efc00ac2a86b0627fa46365e292248519beb"
+        },
+        "workspace.dependencies|thiserror": {
+          "sha256": "9e3aa54e11b86061cf040a6c3a09adf241d8d7c07b2b6c490a85dda282fbfd56"
+        },
+        "workspace.dependencies|tokio": {
+          "sha256": "bf8437a04464bae92da5fa483dab0c8c4455ff026d0820c7a108619d4d6e7c5a"
+        },
+        "workspace.dependencies|tokio-util": {
+          "sha256": "4627c252701219415a0760a8ee92e39f7210ee87479fa26d0d430379e9db3d10"
+        },
+        "workspace.dependencies|toml_edit": {
+          "sha256": "c4aa37723ebbab8a26f33420863cccd7eda4a869441d33bbae375ed193f57973"
+        },
+        "workspace.dependencies|tower": {
+          "sha256": "a8101ccf79fcec2cedd9551be7e3e486e34ff547aaf4e4ad0fae0607241bafc2"
+        },
+        "workspace.dependencies|tower-http": {
+          "sha256": "af49028bf4f5b6920216088c8f5ccf1521dc861f00b49b5d8f5fc25d533b37e3"
+        },
+        "workspace.dependencies|tracing": {
+          "sha256": "6a7ab17e2a119c9f7dfba7d885d50297fda271468aaf3e39441982fb67029c4a"
+        },
+        "workspace.dependencies|tracing-futures": {
+          "sha256": "5b92b92f35dad3210aadd7dd1dfac28aa571e94330d6fca0aedde799e7ba4eea"
+        },
+        "workspace.dependencies|tracing-opentelemetry": {
+          "sha256": "2d39188837dd49c92c87493e309fecf7cc8413ef83e446afb993988e2725962f"
+        },
+        "workspace.dependencies|tracing-subscriber": {
+          "sha256": "14a8ccdbe20a05086b79aa7a74c86443230e01ed674833eb6dbf9f46d6d2f038"
+        },
+        "workspace.dependencies|typed-path": {
+          "sha256": "f407b71b7e106887e64be1001f9ddbcab633557977fd07a3366a295a09539515"
+        },
+        "workspace.dependencies|ui_components": {
+          "sha256": "71528c7776762afa5642554af4c0138e38b9e4522e2bbc18564ec5058de80567"
+        },
+        "workspace.dependencies|unicode-general-category": {
+          "sha256": "aa3bbf7b3112fddfcabf8916223c063318e7a012efaba8f2d11b999028e5c435"
+        },
+        "workspace.dependencies|unicode-linebreak": {
+          "sha256": "96587ecaa84da904e17f59ffd575cbbbb682de4ebbe0a9ec2ff6ad9d039954d7"
+        },
+        "workspace.dependencies|unicode-segmentation": {
+          "sha256": "c738b62b81550aedb350cf0aebe2fc7c8e0c457a43bc1de0cb57a650cb82db0d"
+        },
+        "workspace.dependencies|unicode-width": {
+          "sha256": "37ebc09c4c5f021fe79eaef743f1bd7cd1468057d10557292850b7ecfb66b375"
+        },
+        "workspace.dependencies|url": {
+          "sha256": "5cabdde36618c291b89a301a102655140026b691f6c05adf0ce60e28b81130d2"
+        },
+        "workspace.dependencies|urlocator": {
+          "sha256": "5aaf8a44e005d0a28fbd95a43a475f89fd3304babd02881174b7b970517525a4"
+        },
+        "workspace.dependencies|uuid": {
+          "sha256": "182dd43994639b0ef778b0c61eb6cc1baab66bd8307339d50acc2eb20f146c11"
+        },
+        "workspace.dependencies|vec1": {
+          "sha256": "292b5fd0a2dcd425dbc5b7fbfb899dbd369e64e2fe201a3b7d4d371b9d20d8ab"
+        },
+        "workspace.dependencies|version-compare": {
+          "sha256": "275de2da62a30ec3b67dd9080931c351b347d2521a05f8443f3a1f8cdcded8de"
+        },
+        "workspace.dependencies|vim": {
+          "sha256": "34216cbe10b7765a679343a78db4e81168be03f324854e17f2af928d1ce88e41"
+        },
+        "workspace.dependencies|virtual-fs": {
+          "sha256": "34f544e5069d854a73e01af9500ae29f87e15e7f0bc460c2f280a0fa87ff8b21"
+        },
+        "workspace.dependencies|voice_input": {
+          "sha256": "f45dc936d43fd4ac8f6f76d1d398994f1d43eb820875ccf80b2a9896474944a3"
+        },
+        "workspace.dependencies|vte": {
+          "sha256": "942327e7f16169247812bb76e64c63e63be40859c4accb8a3fb5852d7653e7e2"
+        },
+        "workspace.dependencies|walkdir": {
+          "sha256": "3f88e3e972baf86efee21ccf7db6f413b2a2e853f483ff17ca5139307854c44b"
+        },
+        "workspace.dependencies|warp": {
+          "sha256": "2793ffdf6b80ae67f3eb7e20ffb22bf53cc5a956212bc26f18a42c18acbc6b4f"
+        },
+        "workspace.dependencies|warp-command-signatures": {
+          "sha256": "6884c4eccd3fd04821b67757633d1acf7ffe6a1f5e7b6b4b41a5a8fd380e0d62"
+        },
+        "workspace.dependencies|warp-workflows": {
+          "sha256": "059328dd228748f1db8c5ee96258ad19810ad0d1076ba737c670e21b5c7479f4"
+        },
+        "workspace.dependencies|warp_assets": {
+          "sha256": "182411b3d2474b3ba8dc26f15a159bf55f69c6272b20f6d714ac633f4cd8da6a"
+        },
+        "workspace.dependencies|warp_channel_config": {
+          "sha256": "5915bfbb466902756e48ae9ce3284fa2ce0b6ad00a37c39b9c9490d7308a5b0c"
+        },
+        "workspace.dependencies|warp_cli": {
+          "sha256": "bf3c022bf63f24776ecee1242c8339e60d7d8391aaabe311803a41be8e72b613"
+        },
+        "workspace.dependencies|warp_completer": {
+          "sha256": "2ddce111d79ae174cb2e4ceb79fec2111f1b89b2569c36b4f112c15e5130c978"
+        },
+        "workspace.dependencies|warp_core": {
+          "sha256": "fa7f9eb918b11a5dd879c0e757943c07b32a72132686cf06867ad7e123560011"
+        },
+        "workspace.dependencies|warp_editor": {
+          "sha256": "98c77837031a6bcf6e7a1dfd5a75ff6fee3dabcdfc5a98baf7fed0dbe41411bf"
+        },
+        "workspace.dependencies|warp_errors": {
+          "sha256": "42b3d240a747abf220b272ed3a06a3818ce90d11f410343f26b9e3da084756be"
+        },
+        "workspace.dependencies|warp_features": {
+          "sha256": "e19cb9b751cfb608cd6fe63761749674a2c80775c57ad43300b8179b70d85776"
+        },
+        "workspace.dependencies|warp_files": {
+          "sha256": "76e7e07bfcd251396e6c26fd9a9d146cab6be86609e3fd30e096b9050b7d6f58"
+        },
+        "workspace.dependencies|warp_graphql": {
+          "sha256": "9ed38ecab2326ea2748308fc6c63235de0986390e43a024a4b124f80c618a8d2"
+        },
+        "workspace.dependencies|warp_graphql_schema": {
+          "sha256": "e969c0964f342d073cbf50c8786617ee91cf1068fb9728131e54ece36132226c"
+        },
+        "workspace.dependencies|warp_harness_usage": {
+          "sha256": "de62d9dd5488c6e1b244c42f8bb017866a7155dcf8f0a8a8a9024d07fec86250"
+        },
+        "workspace.dependencies|warp_isolation_platform": {
+          "sha256": "45528fb0c9d1d3674170bf2298bb0456ef0792d68473e31e8afb7d9738d5814e"
+        },
+        "workspace.dependencies|warp_logging": {
+          "sha256": "32ebedf93a3da1442b4b72fe1048785be26efaa27bb19705362fb6e5f97ceb34"
+        },
+        "workspace.dependencies|warp_managed_secrets": {
+          "sha256": "96a6767224eb80ba5caadf390a33ff57922dbad173824177dca7e62390624102"
+        },
+        "workspace.dependencies|warp_multi_agent_api": {
+          "sha256": "b71a7c21b103541f32fd5442c1ccb4a394355a965d5717f60f666a21eaf548d6"
+        },
+        "workspace.dependencies|warp_multi_agent_client": {
+          "sha256": "fdd4c01ee273a7cf3f62022ecfed47c6232336e99bbfa5a2500dcb260a90ce1b"
+        },
+        "workspace.dependencies|warp_ripgrep": {
+          "sha256": "8041fa44563a3b2e6541803a114c5f8529bf54835edfbe06157639e94b0a177b"
+        },
+        "workspace.dependencies|warp_search_core": {
+          "sha256": "32b72f4ba1ca179840352c61371b1714a5b95619e214fefb3326c43351c495bd"
+        },
+        "workspace.dependencies|warp_server_auth": {
+          "sha256": "8de829c9a4aebe5c609a5cf386c2c9d0421eca872d99413a8818169f58c468c1"
+        },
+        "workspace.dependencies|warp_server_client": {
+          "sha256": "7915031384beb07147fc60b4487884136ab730d5c51a7a7f7fa2d25806275b41"
+        },
+        "workspace.dependencies|warp_terminal": {
+          "sha256": "0c244d97041043a0ea35691471a4dae4b009d229667adeac359b2b25e9536590"
+        },
+        "workspace.dependencies|warp_util": {
+          "sha256": "20d7eb5a855dd93589b6e82998a0ee4e0214411dd81d742a69931d09f6e28e7a"
+        },
+        "workspace.dependencies|warp_web_event_bus": {
+          "sha256": "e0bd6c5b84ead38c771643569d18b04d91581c1cbefceb971e0bf4967d0d0bff"
+        },
+        "workspace.dependencies|warpui": {
+          "sha256": "ddefb6b9efee291e6d7969dcaf24fe90ddcd43371a35cfcf4886651967bcd602"
+        },
+        "workspace.dependencies|warpui_core": {
+          "sha256": "321b942b2530cc84667cb81e82d16d1f89bcb426e1511eb3fe7a693a195d7b80"
+        },
+        "workspace.dependencies|warpui_extras": {
+          "sha256": "0dce007eddbd35c828c6006f8302ec58a0299d9edfa46d26ae949df3773fa533"
+        },
+        "workspace.dependencies|wasm-bindgen": {
+          "sha256": "0c9fe8edf0b8c30099455de404093de96d63cc0a705376677ad39546abec7e89"
+        },
+        "workspace.dependencies|wasm-bindgen-futures": {
+          "sha256": "2d6dc13e46dd67c8e761f2f42c08b082cbc822e54b5d8eb8c1347b776721725f"
+        },
+        "workspace.dependencies|watcher": {
+          "sha256": "97076f75078fb400de0cc3adadc77501627d469f9d9fa7aa3ab1bec7626dcfc1"
+        },
+        "workspace.dependencies|web-sys": {
+          "sha256": "cf9a725199e2c3453073a5a5ab01631be0dabbf4033700db0d82a6b3f983843d"
+        },
+        "workspace.dependencies|websocket": {
+          "sha256": "ed24551cf3ab81bacb8c08df65b452b2da4f42087f4d3f512fb864aa40a1488e"
+        },
+        "workspace.dependencies|wgpu": {
+          "sha256": "3345d306e650935e01f00eb625e759b26c868f8193f2fb285e92ee5445aaef18"
+        },
+        "workspace.dependencies|windows": {
+          "sha256": "8b036869061b3dac1a286f9c667ebc12f479b24f28f71754d6baca85f9c05173"
+        },
+        "workspace.dependencies|windows-core": {
+          "sha256": "d7fae8b219f98cc85bc953d87ce1adb8d294c02f401caaa645b37126b1e47e98"
+        },
+        "workspace.dependencies|windows-registry": {
+          "sha256": "ac935545c45e596850b5c4e68a98d4546bd033a35d0062f8ba6b7f496f86dd89"
+        },
+        "workspace.dependencies|windows-result": {
+          "sha256": "ac935545c45e596850b5c4e68a98d4546bd033a35d0062f8ba6b7f496f86dd89"
+        },
+        "workspace.dependencies|winit": {
+          "sha256": "48daad0c4d6ed3f4c6dbac83600b0147afd3fe997c0599849dc81cb5651d812c"
+        },
+        "workspace.dependencies|winreg": {
+          "sha256": "213e77fc1bcf25ab93f7605e1b78c62b944f6416c88eb742b98b0ef46bdda70e"
+        },
+        "workspace.dependencies|x11rb": {
+          "sha256": "a520683d685860dfe5bab3c7d56bd4f58a803c8b7ed2b2fb63b69bc0abe34783"
+        },
+        "workspace.dependencies|yaml-rust": {
+          "sha256": "684d41a8950edbe515897665f23dd5fc7fe5bf676a15dca45ee0d2e6f0f34bc3"
+        },
+        "workspace.dependencies|zbus": {
+          "sha256": "ed57e76aebc16ec2e2f09eabbf1aaf56575fbbdd1d0bdaa1ad90ae6d9f37a2b8"
+        }
+      },
+      "features": []
+    },
+    "app/Cargo.toml": {
+      "sha256": "6d1ea3d81f7332503cf4a520a5d84370a052041445e1f106a2de731c16213594",
+      "dependencies": {
+        "build-dependencies|anyhow": {
+          "sha256": "4e3043229142b64d998563bc543ce034e0a2251af5d404995e3afcb8ce8850df"
+        },
+        "build-dependencies|cc": {
+          "sha256": "4e3043229142b64d998563bc543ce034e0a2251af5d404995e3afcb8ce8850df"
+        },
+        "build-dependencies|cfg_aliases": {
+          "sha256": "3d41678ec5c59d719852de02e86b1033910db2ea5e7fb8d61431b697df3104f3"
+        },
+        "build-dependencies|prost-build": {
+          "sha256": "3a7a9276f2433604407b804b2dccb1c892dfd4a1a3ff97dcaf1bd095dff4b44a"
+        },
+        "build-dependencies|sha2": {
+          "sha256": "56ecf69b573448828dcc4a1d42aa747eaad647f6d2eab2f6ebeeee8eaed861f9"
+        },
+        "build-dependencies|tempfile": {
+          "sha256": "11de9cf4c28ca90d9843e7783f00efc00ac2a86b0627fa46365e292248519beb"
+        },
+        "build-dependencies|walkdir": {
+          "sha256": "fb0ec3ed7d67ce773e32c7d9b95fc65750aa77f1795c0785af4d57c11fcb3a5f"
+        },
+        "build-dependencies|warp_util": {
+          "sha256": "20d7eb5a855dd93589b6e82998a0ee4e0214411dd81d742a69931d09f6e28e7a"
+        },
+        "dependencies|addr": {
+          "sha256": "4fe0a4dfacd48a0ab8c61dbd7fa358cbe6f2111dd6725297733a0adcc1178a2f"
+        },
+        "dependencies|aho-corasick": {
+          "sha256": "438e23852eb6501fb000c4d5fe14b6a3c2eab73fcba9829acde93e01e7ff3eef"
+        },
+        "dependencies|ai": {
+          "sha256": "cd50eff4dde6646c0f97817bf5f013718e41b2b27ee116609c4e3ed312106a0e"
+        },
+        "dependencies|ai_types": {
+          "sha256": "1c69ec9775bb3ea0b527238491b60b68a87f185cace23c727c647d94e2bffb63"
+        },
+        "dependencies|alphanumeric-sort": {
+          "sha256": "5ebccd74e0f1a1180c2b21482210deb34ee3ad78a999f677e1a80efd3f778b5c"
+        },
+        "dependencies|anyhow": {
+          "sha256": "4e3043229142b64d998563bc543ce034e0a2251af5d404995e3afcb8ce8850df"
+        },
+        "dependencies|arrayvec": {
+          "sha256": "71ce40501843abfbeb38219044addf80d8610523fd831645b9c6c2b021f1a5f6"
+        },
+        "dependencies|asset_cache": {
+          "sha256": "05a32709def1781215017fc6cec6ca85d6b87b648f066ebe6e6700e1a8d5902a"
+        },
+        "dependencies|asset_macro": {
+          "sha256": "c281cbb6e03ca3a03c7c76f2347d2eb9c67f8669711a06cee2ec246442e1f991"
+        },
+        "dependencies|async-broadcast": {
+          "sha256": "a2eff284ff918a6849e8b824fe7772ab49aab42505cc5d87599d886cb9ade359"
+        },
+        "dependencies|async-channel": {
+          "sha256": "44406a8c68c27a957c5f875618268a648680cad1008d9d4376817b331fa8e3c8"
+        },
+        "dependencies|async-compat": {
+          "sha256": "5b92b92f35dad3210aadd7dd1dfac28aa571e94330d6fca0aedde799e7ba4eea"
+        },
+        "dependencies|async-fs": {
+          "sha256": "c8c1a5de8c3f382d82998539c933d9cde29eab083da80a1012f5faff131222e0"
+        },
+        "dependencies|async-recursion": {
+          "sha256": "662b20289aeb1a425be4082c8c0065f68818c127fd3b35e30b11f8bf03b2bdcb"
+        },
+        "dependencies|async-stream": {
+          "sha256": "e4a9f0a7f873a4e0837c8ab75c4e8eb92912581f70ddddc7edbe0033a992adab"
+        },
+        "dependencies|async-trait": {
+          "sha256": "d025813ff5d1ed494e4313f2e2ac1e2faddc95dcf1b7c38626469dfc4387cfb0"
+        },
+        "dependencies|base64": {
+          "sha256": "0c709c6643a9c322de0e2940608bf996a0ce9520553af72bfdc18ebbedda5953"
+        },
+        "dependencies|bimap": {
+          "sha256": "39f44ccdd92a781451979bca06fa474df25e721d2f4104cc41490f133f0a091c"
+        },
+        "dependencies|bincode": {
+          "sha256": "7b81bc58e6c8ba000e12377276caee1ca73e2c29f0d84907054ced5605c1556e"
+        },
+        "dependencies|bitflags": {
+          "sha256": "0ebcba0e8dfb9c7bf04acb67f0f1e8c8fa84040510588138fa61f7dbb29b3742"
+        },
+        "dependencies|bitflags-serde-legacy": {
+          "sha256": "da2ec7fee713eb694c2690fcb946820a6c12f0cad10acdfa4bc650a1564a72f5"
+        },
+        "dependencies|blocking": {
+          "sha256": "97b1956d0aa646f0ce81722ac5a634bde75ae126c861a66d95e03ce9eb00a362"
+        },
+        "dependencies|bounded-vec-deque": {
+          "sha256": "275de2da62a30ec3b67dd9080931c351b347d2521a05f8443f3a1f8cdcded8de"
+        },
+        "dependencies|byte-unit": {
+          "sha256": "d0bc2bedfac65c384356ebf773080c3f8a78c40549edd8adc54c420bb2676c8e"
+        },
+        "dependencies|bytecount": {
+          "sha256": "56a00212bbf13d3e7a8665f1ae58880f916216685c7e3362e25981edab6e5093"
+        },
+        "dependencies|bytes": {
+          "sha256": "62956dd2ccb43596d4091e18bff93d6dbb834fafe9c594048b6d5e5476d344b8"
+        },
+        "dependencies|cfg-if": {
+          "sha256": "662b20289aeb1a425be4082c8c0065f68818c127fd3b35e30b11f8bf03b2bdcb"
+        },
+        "dependencies|channel_versions": {
+          "sha256": "8f022fef667ec777a5f71beb2b26af2269c3701cc91dcb7a6eddb70db443dfe0"
+        },
+        "dependencies|chrono": {
+          "sha256": "e5db223c5b8121f2860a534d4ef4572ae3cc7d7da4cec72f055a7a773f9e3472"
+        },
+        "dependencies|clap": {
+          "sha256": "edd4b15f5b3deafc5a8f327ca34da4c0ebbbd016a3d1d01d91c5703051745e8f"
+        },
+        "dependencies|cloud_object_client": {
+          "sha256": "4f933a8f8b137e043d30bef1911c6034edd6c7c633137ca9a32a33f49769bd03"
+        },
+        "dependencies|cloud_object_models": {
+          "sha256": "1c5396be1744520c2df85ef6cb602529af93cd52ede7b3be7af4e8c4f131c35b"
+        },
+        "dependencies|cloud_objects": {
+          "sha256": "0ab671169c0ef7b382c1d4b09aa65bf0723a2099e590d1c2a91549b5357e483e"
+        },
+        "dependencies|command": {
+          "sha256": "78a713192c06725d4c8c2544c7817c3349ed7cafaa0fcf85ec55973bcb154c34"
+        },
+        "dependencies|command-corrections": {
+          "sha256": "b5a6e30ebf248e3a3c592fee5f12ca07beb1dcb12c865060cf7176c9b695464a"
+        },
+        "dependencies|computer_use": {
+          "sha256": "f0fb0fde79a92bc7e873f9141d5f83a691d976cc50abe7b0c3bb14c3a0f552b3"
+        },
+        "dependencies|concat-idents": {
+          "sha256": "c9a307c1d5055eca71d853c35749344b6fe9d190c2c396031f43c33950f4924f"
+        },
+        "dependencies|content_inspector": {
+          "sha256": "43527147bc61cfeb7fdc63fb514b609ba06e516540e7b137a23ee5c002b0ca8d"
+        },
+        "dependencies|counter": {
+          "sha256": "4ef82edd6f5a35007f59c6116b77a5116e12151ca89a1be30f8060117ed296c5"
+        },
+        "dependencies|crc": {
+          "sha256": "f28ad6e7ae4f30d5b527150e4f4ae952a09f5cd6f45b80eef3b4dfa85a27859f"
+        },
+        "dependencies|csv": {
+          "sha256": "a68553deb066d738a4e131703ac7f21904941c52acf861aeb1d0cf19e8928ba2"
+        },
+        "dependencies|cynic": {
+          "sha256": "5983d9246ecea3804cb2be0d9822e698237eb838f9cab9894d2c974e83a3762d"
+        },
+        "dependencies|dashmap": {
+          "sha256": "615d2a097dd22d392c5ddb4741953348c362bdeb4b176090241c661d34d37b55"
+        },
+        "dependencies|deltae": {
+          "sha256": "dd395d41f72cbbf6705e51cff1f43e430a77c353aa98682d24ea7ce3fe24c026"
+        },
+        "dependencies|derivative": {
+          "sha256": "bcdc0a4f69f3e0a387395fb2861eae37424a1d647e0ead70f0f450c4bfa1aba6"
+        },
+        "dependencies|dhat": {
+          "sha256": "7c6ef78936f5cfa8a777e531e74eac8078255da94a52d658dc771379ffa953a3"
+        },
+        "dependencies|diesel": {
+          "sha256": "1647046a5b2aaca46bf91b8e41fbb88c3f5defd238488011b36a756b426adcef"
+        },
+        "dependencies|difflib": {
+          "sha256": "95d4555afacd4235db44eecab94a3af7f72322d312b607439fb8fa93f5ee7014"
+        },
+        "dependencies|directories": {
+          "sha256": "77334743508a112bdce7a06d067e8208f149897ddf0139019d7c932f8ff27a57"
+        },
+        "dependencies|dirs": {
+          "sha256": "d3925fe1a114105940140f6c73a76f1255c314c14c19f657bc80f38de9ac9159"
+        },
+        "dependencies|dunce": {
+          "sha256": "c1cac915ce817e54a91c0ee2f642e2e2ddceb23a6d820f68e6a42cc307d523e5"
+        },
+        "dependencies|email_address": {
+          "sha256": "940a480366487425ebc658bdb065ad6f7101927df909ad74c8080bbd5051b80e"
+        },
+        "dependencies|embed_plist": {
+          "sha256": "0d1cee397cd2c43ba8b561137a922ebda5991bf72c17a869eaad111edce179e3"
+        },
+        "dependencies|enclose": {
+          "sha256": "7d24be616bf816ebd8d5687945d26b77b11a5f9820721b49f5066736b7157429"
+        },
+        "dependencies|enum-iterator": {
+          "sha256": "438e23852eb6501fb000c4d5fe14b6a3c2eab73fcba9829acde93e01e7ff3eef"
+        },
+        "dependencies|event-listener": {
+          "sha256": "4711eee7fac9701a137b75b5a0086b505c7ea948b9b267147390726653e55421"
+        },
+        "dependencies|field_mask": {
+          "sha256": "0e13ab390642d582e2f756274b959d44580c97df981c9906722e8a99964396d7"
+        },
+        "dependencies|float-cmp": {
+          "sha256": "3041b1b566a049e04d75628f1ddfae1cb0964768150a41f244ee8f2ce32de1ea"
+        },
+        "dependencies|futures": {
+          "sha256": "5e21b45eeb612bf0d8cb456712dafdce3db9d5877cf4ee266b6ad967624fc77a"
+        },
+        "dependencies|futures-lite": {
+          "sha256": "d0f3f48c5f1e3da4c297e65a9c22f9492a8320ee427f057bff24918050b2c2ce"
+        },
+        "dependencies|futures-util": {
+          "sha256": "d820b59332b2092e1abbea3346233e1ca3d76ae2db93fde53d60805910530435"
+        },
+        "dependencies|fuzzy_match": {
+          "sha256": "bfae787350de90d6ab9e64fcaa245efd88fe5dda14e5e040b619ee649fa94ff8"
+        },
+        "dependencies|getset": {
+          "sha256": "da2ec7fee713eb694c2690fcb946820a6c12f0cad10acdfa4bc650a1564a72f5"
+        },
+        "dependencies|globset": {
+          "sha256": "5dd5160a5cfdd2867fbc9234f0b4a787a2d0d90aaf1cd81591541505a63b7cc8"
+        },
+        "dependencies|handlebars": {
+          "sha256": "295ba3bce1736475a380e105851b51cb051041fed66d08b9ef3730b82f25ba51"
+        },
+        "dependencies|hashbrown": {
+          "sha256": "f2ae8013e27832e5121a4c05a4254017ccf652c0d11eddb779b0d6bab430698d"
+        },
+        "dependencies|hex": {
+          "sha256": "c2d3c8adcf8d7e6ed91d63c4c0ec70cbab2ccacba77fa4a0f86849a80af1268b"
+        },
+        "dependencies|http": {
+          "sha256": "aa3bbf7b3112fddfcabf8916223c063318e7a012efaba8f2d11b999028e5c435"
+        },
+        "dependencies|http_client": {
+          "sha256": "addf02d64ca63f11db9d87c9aefc65e19ce94d44d1ddec9c86d3a1586e3cd832"
+        },
+        "dependencies|image": {
+          "sha256": "6f2624a81a6d1d442c641f83de05d0ccef16a07f26372be2d3bcc2b663ed550c"
+        },
+        "dependencies|indexmap": {
+          "sha256": "894cbae7d83bfa6e364d32d73ec04f02fc0d0bc22f6cac2cfc45fdfa18e7c7e5"
+        },
+        "dependencies|infer": {
+          "sha256": "ca4bb2f3587815b264fca4783b907c58e919d83550a9c00c5205c04cdf6e8b82"
+        },
+        "dependencies|input_classifier": {
+          "sha256": "fe5406aeefc09859005b312581bc0b958097885515d58e2e32a6ffced53e4504"
+        },
+        "dependencies|instant": {
+          "sha256": "a2665098210021c32456dd00e7200996db063f2936a6d9507b0495ddb4006244"
+        },
+        "dependencies|inventory": {
+          "sha256": "5d9b3810e547b5e5b8e5774cdd18b47ead5ad654201407dc7244a0099fcbb7a7"
+        },
+        "dependencies|ipc": {
+          "sha256": "fd0af1a52ff780ab906a13b8b5fd651b2f9bd5eb1b0a24e4b7cf024780fcaed8"
+        },
+        "dependencies|iso8601-duration": {
+          "sha256": "bbe155ca34951b6e41db7db790108c0c6e4eafafa92475a0268dc4e6135d7db9"
+        },
+        "dependencies|itertools": {
+          "sha256": "e6e6c7b357f78b74d63c7206b5ac12052ada06168a795e0c9833f581105161bb"
+        },
+        "dependencies|jaq-all": {
+          "sha256": "dfab0e4cd8ddec4a9d644835b66705743688f1f581229bd7e8ef992be35c5b09"
+        },
+        "dependencies|jaq-json": {
+          "sha256": "fca14bd2e4f89ee14be2fa734c4f299db5afa7b7cbd3e39c87323964e1ab5ad4"
+        },
+        "dependencies|jemalloc_pprof": {
+          "sha256": "d9d2c5cf30f326b056e9f5b501d091e4eed45611824c54e181f4c0e0fd9e0127"
+        },
+        "dependencies|kmeans_colors": {
+          "sha256": "a44321e969f101a203c335555232955db36941762fcfab49ad3e8e2d7d44743b"
+        },
+        "dependencies|languages": {
+          "sha256": "339a87f72bc978575c9feb7e05b27f5987b73c4d51dbe57d6ccba103c423e302"
+        },
+        "dependencies|lasso": {
+          "sha256": "732852a76ef54bc88f56f364b17194858ffba3c45d9939b7377c72d93af09ee9"
+        },
+        "dependencies|lazy_static": {
+          "sha256": "214652dfeb982e30d58a3f18e3378e7f8ad8d2cbf518ca5e83f584990dcaff30"
+        },
+        "dependencies|libc": {
+          "sha256": "71fcfccba860bbc989888f475f13f7259921155ceb5bbb1ada2ee15028cdbb20"
+        },
+        "dependencies|line-ending": {
+          "sha256": "214652dfeb982e30d58a3f18e3378e7f8ad8d2cbf518ca5e83f584990dcaff30"
+        },
+        "dependencies|local_control": {
+          "sha256": "f5f4adf8b7e0fce9d91dc664271ccef0acf8fb55936fd5a7c9e685785826adbf"
+        },
+        "dependencies|log": {
+          "sha256": "f9f789d2b34aa67c877fea6e7d0cbaf07e2e1fbba4619f724cdcb7f317f26389"
+        },
+        "dependencies|log-panics": {
+          "sha256": "85502cff28cb639a52f1b30baf540fafe0285b3326ba3447c1e076fb00f4cd0c"
+        },
+        "dependencies|lsp": {
+          "sha256": "55a7f6361660f25a03f36a2c60234d8eb1bb541b83a19087385eab51f2dbdbdc"
+        },
+        "dependencies|lsp-types": {
+          "sha256": "55c97adc3338a756cc3e12f9a70e9613390ff8d012c858f07023267e152671cf"
+        },
+        "dependencies|lz4_flex": {
+          "sha256": "4e7cba78b015e7129c09142c3bd29eb82455d06f8e3ecd0409c09d82147e17ff"
+        },
+        "dependencies|markdown_parser": {
+          "sha256": "ea6a4e073c4431bce4ad0e8fc62eaddecce4ed57b1e41d5ac8f4b96c8eda7768"
+        },
+        "dependencies|mcp": {
+          "sha256": "34b9b6c456490e36de8ee802d61823ce05c52362d57cef729637f50c602e894e"
+        },
+        "dependencies|memchr": {
+          "sha256": "3f88e3e972baf86efee21ccf7db6f413b2a2e853f483ff17ca5139307854c44b"
+        },
+        "dependencies|memo-map": {
+          "sha256": "dd395d41f72cbbf6705e51cff1f43e430a77c353aa98682d24ea7ce3fe24c026"
+        },
+        "dependencies|mermaid_to_svg": {
+          "sha256": "c266ef93b8fd53b63ad4f5cd5fdf424afd765d184c5a4dc86cc3d53c32ddae86"
+        },
+        "dependencies|mime_guess": {
+          "sha256": "23524be607befdba6ffd173293692497ab794a5df3ddad253adbbc8057e9fac5"
+        },
+        "dependencies|natural_language_detection": {
+          "sha256": "2ed6e4494700486f92f6d83c1cc0cdb3b67b5829c5ea2b98afa92622874785d6"
+        },
+        "dependencies|num-traits": {
+          "sha256": "f4df8cce100ab9a312be1fdebd3f27281b81b2ecea0ef8d522a6d51689b10878"
+        },
+        "dependencies|num_cpus": {
+          "sha256": "d0f3f48c5f1e3da4c297e65a9c22f9492a8320ee427f057bff24918050b2c2ce"
+        },
+        "dependencies|oauth2": {
+          "sha256": "713b201b92236f9051fabbb5ee667d32a8c501e662a18b71f3595ccb66ea8a94"
+        },
+        "dependencies|onboarding": {
+          "sha256": "3d714c6dac03832a2de8824bc6e80f23b598711f076d202b1224e2446f5afd26"
+        },
+        "dependencies|once_cell": {
+          "sha256": "d12c706220cc88b1c1baa26531969b414484299169dbcfa85da53442a66b89db"
+        },
+        "dependencies|ordered-float": {
+          "sha256": "57891294d5e1eb2f58cf3d749b2e317d7942aaa0f18bcf77b7197032f9d7ea1f"
+        },
+        "dependencies|os_info": {
+          "sha256": "9fa761247671dabe32b41612b44716f7d9cce2a9b9e261d5c072aa01d1cdc305"
+        },
+        "dependencies|palette": {
+          "sha256": "2cc0db6b5771f030ec2d1c693580cd56c7cbd9e0037cdd86c119c00a7de86b80"
+        },
+        "dependencies|parking_lot": {
+          "sha256": "53dbfd01968a467dde67a260b61fa75c3b670ce0cf95351ca30a0665f79ded8f"
+        },
+        "dependencies|pathfinder_color": {
+          "sha256": "38348d742bff5a8524cda227b7d4bd383c65853e7e8ae35d6b87078ce8cd27ae"
+        },
+        "dependencies|pathfinder_geometry": {
+          "sha256": "d6afc30dd08180f18ed5bb0148127b06c535f1e6d9ed4ec56ad915624391179c"
+        },
+        "dependencies|persistence": {
+          "sha256": "f47363c6f8aada097b4ec67e4e0a8be31d260b6854006d95ffe9c8aed60e98d8"
+        },
+        "dependencies|pin-project": {
+          "sha256": "7f803779333bf5afc76b3ca4b0dde98f2cd32b46f291ac15221dc651aba0fc64"
+        },
+        "dependencies|plist": {
+          "sha256": "f76983c7e4744f0b380a82e22784477ad721ada6d7c75f9aa60913f74ce4d6d2"
+        },
+        "dependencies|pprof": {
+          "sha256": "ef3554f128a33c6f43757c4626129d3c68dcb939f15c70decb2c549bba0b9b0f"
+        },
+        "dependencies|prost": {
+          "sha256": "3a7a9276f2433604407b804b2dccb1c892dfd4a1a3ff97dcaf1bd095dff4b44a"
+        },
+        "dependencies|prost-types": {
+          "sha256": "3a7a9276f2433604407b804b2dccb1c892dfd4a1a3ff97dcaf1bd095dff4b44a"
+        },
+        "dependencies|rand": {
+          "sha256": "661c073dd2b321172411c4fcee0da87a2f22c18a3d57d8d1ede00a450e1ae580"
+        },
+        "dependencies|rangemap": {
+          "sha256": "e392247904fdaff9add6ebe957e513c93eace29463ef4eba9117c95ef723f2d6"
+        },
+        "dependencies|rayon": {
+          "sha256": "a573cc2f1c6f5c16d02985f2c3fa4cae330a939f0fe9f3f59f1a5e0133058e63"
+        },
+        "dependencies|regex": {
+          "sha256": "378b695dce30e47bc2f55c225fcf898effd1f9c8be94c649e5735f7a860bf2b6"
+        },
+        "dependencies|regex-automata": {
+          "sha256": "c37c7325a29ca1a38a91fad97419dac37da270c558a13eadd1f86654d6aa551b"
+        },
+        "dependencies|remote_server": {
+          "sha256": "315687ba19308b9637703550e857bdd9cb153e43ea354a2e3be755fc7eba814f"
+        },
+        "dependencies|repo_metadata": {
+          "sha256": "1fb436da6892fbc8b543e217d7ce5fecc5a68dc812b5d6f2c1a11e039f17b639"
+        },
+        "dependencies|reqwest": {
+          "sha256": "263f51aadbd6f4ba44ebde31bd81f7f93608b76aea09e1a54a5093a470f804e3"
+        },
+        "dependencies|reqwest-eventsource": {
+          "sha256": "829d731d7ed7c02d2c60f5c705fbdfbd4cc9ec714c826a2e4122a222033cc496"
+        },
+        "dependencies|rmcp": {
+          "sha256": "d4a82aeb356d39c8cfc1aabc95c83b1091530fd3af7a37db445af526c8e9581f"
+        },
+        "dependencies|rust-embed": {
+          "sha256": "4afc449e1bf8c7d7f83912ea3dfda3e24485d5a88fc7bec6ecfaa8069143eab8"
+        },
+        "dependencies|rustc-hash": {
+          "sha256": "3067a0a44fc26c9833ad8b04076ddc1524f01fe851e3383dc6cc2c2bbd04934b"
+        },
+        "dependencies|schemars": {
+          "sha256": "f76983c7e4744f0b380a82e22784477ad721ada6d7c75f9aa60913f74ce4d6d2"
+        },
+        "dependencies|secret_redaction": {
+          "sha256": "5b913b91ae9e59a25711852886f324f25a47ba987aa6e85374e8989864a806fb"
+        },
+        "dependencies|sentry": {
+          "sha256": "458b9921bb9f9c6271ea64b786de765ac1b01ed9a78f400b40753f06fae3e9be"
+        },
+        "dependencies|sentry-log": {
+          "sha256": "d90cc3dc6551002fb72200714c47ea820565618d2880f956d418c885a92f6469"
+        },
+        "dependencies|serde": {
+          "sha256": "1fab9ac5326bb2ac614ddc77bf968bfa215d787e5d671da6ece084c5dba06fac"
+        },
+        "dependencies|serde-bytes-repr": {
+          "sha256": "5d9b3810e547b5e5b8e5774cdd18b47ead5ad654201407dc7244a0099fcbb7a7"
+        },
+        "dependencies|serde_bytes": {
+          "sha256": "4e7cba78b015e7129c09142c3bd29eb82455d06f8e3ecd0409c09d82147e17ff"
+        },
+        "dependencies|serde_json": {
+          "sha256": "5d0f806dc153c406e5b2a5e99a2b39fc291d846224cc138038a8a69747f439fe"
+        },
+        "dependencies|serde_regex": {
+          "sha256": "aa3bbf7b3112fddfcabf8916223c063318e7a012efaba8f2d11b999028e5c435"
+        },
+        "dependencies|serde_urlencoded": {
+          "sha256": "119566e0fc12dc821cfb132c2d092229130ef8667ce80c063f9d16697861e480"
+        },
+        "dependencies|serde_with": {
+          "sha256": "554c75372863978a6f9c9060fc1c8cb62bf7da20bca2b38694f61d6c44f06899"
+        },
+        "dependencies|serde_yaml": {
+          "sha256": "5d6ae61b3a7afa0fdaa9a56606fab7b86386ebc34a3fd024fc1a5b4753c37211"
+        },
+        "dependencies|session-sharing-protocol": {
+          "sha256": "bcee374fc1ae66f07bdc663c0d2ef1f81c21dc4fee95d4e525cd7e0cc507733b"
+        },
+        "dependencies|settings": {
+          "sha256": "1915b37294fb07f93fa94725fdf7359106e7b633938d06ca4654697e093e42cd"
+        },
+        "dependencies|settings_value": {
+          "sha256": "5bc37c69e88c97cdd182f27da8839cd86202638c6ce4753329fa383a0bd5d831"
+        },
+        "dependencies|sha2": {
+          "sha256": "56ecf69b573448828dcc4a1d42aa747eaad647f6d2eab2f6ebeeee8eaed861f9"
+        },
+        "dependencies|shell-words": {
+          "sha256": "aa3bbf7b3112fddfcabf8916223c063318e7a012efaba8f2d11b999028e5c435"
+        },
+        "dependencies|shellexpand": {
+          "sha256": "24a67de8af3ef9b2c74b358c382f53c247bf8986dbf882f24901a03b4ed7331b"
+        },
+        "dependencies|shlex": {
+          "sha256": "e392247904fdaff9add6ebe957e513c93eace29463ef4eba9117c95ef723f2d6"
+        },
+        "dependencies|similar": {
+          "sha256": "07967b62b786323c60201aee3c34d6846d33b2574b05f6ceb83541cf08a7d710"
+        },
+        "dependencies|simple_logger": {
+          "sha256": "e3a95291e9b9cb33c3f9fe1dee1313ed90eba76a803d072c60a1b3f1fa015488"
+        },
+        "dependencies|siphasher": {
+          "sha256": "b61d9a49ebc38547d8ef043dc57ae133cd71b2a37052fc01c6adcec61da50989"
+        },
+        "dependencies|smallvec": {
+          "sha256": "da983c5cc16eef0aeebf15cd3c0de165efe84261b280c708e7375b552defae7f"
+        },
+        "dependencies|smol_str": {
+          "sha256": "23d402f47bfc54380f03e6edbc47930a7d41e1007e25a52a3a13c7a6e03e4a47"
+        },
+        "dependencies|static_assertions": {
+          "sha256": "aa3bbf7b3112fddfcabf8916223c063318e7a012efaba8f2d11b999028e5c435"
+        },
+        "dependencies|string-offset": {
+          "sha256": "f8777ca2d21b49e5203a13f5f2ba3f1bf70abe8ac45678c51c9951b4de795467"
+        },
+        "dependencies|strum": {
+          "sha256": "2edfd629a4fae7d9a456b8652cd53cebe817e5558cd521fb2308c605c6e34412"
+        },
+        "dependencies|strum_macros": {
+          "sha256": "2edfd629a4fae7d9a456b8652cd53cebe817e5558cd521fb2308c605c6e34412"
+        },
+        "dependencies|sum_tree": {
+          "sha256": "baf064052c46473f31718c29cb5d314c5d7ed69a8dd0a5675de9dee7a57027ba"
+        },
+        "dependencies|syntax_tree": {
+          "sha256": "2604452b8aa5a6357509a3a1d034ce6087aaebe3a643d6e15ef4d88d34a7fa52"
+        },
+        "dependencies|tabwriter": {
+          "sha256": "d5b0791f59e62dfa2d741087e45e7794c0105ef6178b7bb8a30c695deb995e98"
+        },
+        "dependencies|tempfile": {
+          "sha256": "11de9cf4c28ca90d9843e7783f00efc00ac2a86b0627fa46365e292248519beb"
+        },
+        "dependencies|thiserror": {
+          "sha256": "9e3aa54e11b86061cf040a6c3a09adf241d8d7c07b2b6c490a85dda282fbfd56"
+        },
+        "dependencies|thousands": {
+          "sha256": "ac935545c45e596850b5c4e68a98d4546bd033a35d0062f8ba6b7f496f86dd89"
+        },
+        "dependencies|tikv-jemallocator": {
+          "sha256": "81e3a7196bd39e2c880f321ace662f9349e33d91ea5c2fe3d985ae90e07cb954"
+        },
+        "dependencies|toml": {
+          "sha256": "c6d6ff3c2d22f209d22c707b645742663e770b5062237f1e8fd6ba8ffb658925"
+        },
+        "dependencies|toml_edit": {
+          "sha256": "c4aa37723ebbab8a26f33420863cccd7eda4a869441d33bbae375ed193f57973"
+        },
+        "dependencies|tracing": {
+          "sha256": "6a7ab17e2a119c9f7dfba7d885d50297fda271468aaf3e39441982fb67029c4a"
+        },
+        "dependencies|tracing-futures": {
+          "sha256": "d623a916da160a794f800d2118a0d47f339c432e82c7aa900a8830d121ed329a"
+        },
+        "dependencies|typed-path": {
+          "sha256": "f407b71b7e106887e64be1001f9ddbcab633557977fd07a3366a295a09539515"
+        },
+        "dependencies|ui_components": {
+          "sha256": "71528c7776762afa5642554af4c0138e38b9e4522e2bbc18564ec5058de80567"
+        },
+        "dependencies|unicase": {
+          "sha256": "b7045840979969bab6513b1c334b1103ff9f0167e0338a4024bb25e5d1a22086"
+        },
+        "dependencies|unicode-general-category": {
+          "sha256": "aa3bbf7b3112fddfcabf8916223c063318e7a012efaba8f2d11b999028e5c435"
+        },
+        "dependencies|unicode-width": {
+          "sha256": "37ebc09c4c5f021fe79eaef743f1bd7cd1468057d10557292850b7ecfb66b375"
+        },
+        "dependencies|unindent": {
+          "sha256": "2005068410560c9642785658b500df5f234a7b846a90b938473fd16329617bc4"
+        },
+        "dependencies|url": {
+          "sha256": "cf73c462c6a46df39022806daedb847076c7217f0dc4fb9f397a8587cc32ad7f"
+        },
+        "dependencies|urlencoding": {
+          "sha256": "981eb5c680665102f9010b78046a1251bb13c99f708a63fb898e67043118c453"
+        },
+        "dependencies|urlocator": {
+          "sha256": "5aaf8a44e005d0a28fbd95a43a475f89fd3304babd02881174b7b970517525a4"
+        },
+        "dependencies|uuid": {
+          "sha256": "182dd43994639b0ef778b0c61eb6cc1baab66bd8307339d50acc2eb20f146c11"
+        },
+        "dependencies|validator": {
+          "sha256": "ca4bb2f3587815b264fca4783b907c58e919d83550a9c00c5205c04cdf6e8b82"
+        },
+        "dependencies|variant_count": {
+          "sha256": "aa3bbf7b3112fddfcabf8916223c063318e7a012efaba8f2d11b999028e5c435"
+        },
+        "dependencies|vec1": {
+          "sha256": "292b5fd0a2dcd425dbc5b7fbfb899dbd369e64e2fe201a3b7d4d371b9d20d8ab"
+        },
+        "dependencies|version-compare": {
+          "sha256": "275de2da62a30ec3b67dd9080931c351b347d2521a05f8443f3a1f8cdcded8de"
+        },
+        "dependencies|vim": {
+          "sha256": "34216cbe10b7765a679343a78db4e81168be03f324854e17f2af928d1ce88e41"
+        },
+        "dependencies|voice_input": {
+          "sha256": "704d04523075b9848816466bfd9b4e9c1fde9ae42e98bcfc47e64d3aca3c43c6"
+        },
+        "dependencies|vte": {
+          "sha256": "942327e7f16169247812bb76e64c63e63be40859c4accb8a3fb5852d7653e7e2"
+        },
+        "dependencies|walkdir": {
+          "sha256": "3f88e3e972baf86efee21ccf7db6f413b2a2e853f483ff17ca5139307854c44b"
+        },
+        "dependencies|warp-workflows": {
+          "sha256": "059328dd228748f1db8c5ee96258ad19810ad0d1076ba737c670e21b5c7479f4"
+        },
+        "dependencies|warp_assets": {
+          "sha256": "182411b3d2474b3ba8dc26f15a159bf55f69c6272b20f6d714ac633f4cd8da6a"
+        },
+        "dependencies|warp_channel_config": {
+          "sha256": "5915bfbb466902756e48ae9ce3284fa2ce0b6ad00a37c39b9c9490d7308a5b0c"
+        },
+        "dependencies|warp_cli": {
+          "sha256": "bf3c022bf63f24776ecee1242c8339e60d7d8391aaabe311803a41be8e72b613"
+        },
+        "dependencies|warp_completer": {
+          "sha256": "2ddce111d79ae174cb2e4ceb79fec2111f1b89b2569c36b4f112c15e5130c978"
+        },
+        "dependencies|warp_core": {
+          "sha256": "fa7f9eb918b11a5dd879c0e757943c07b32a72132686cf06867ad7e123560011"
+        },
+        "dependencies|warp_editor": {
+          "sha256": "98c77837031a6bcf6e7a1dfd5a75ff6fee3dabcdfc5a98baf7fed0dbe41411bf"
+        },
+        "dependencies|warp_errors": {
+          "sha256": "9b872693c2b110e8f40f7c2e881b02918340d972909a549d60ce2f011cb97bd5"
+        },
+        "dependencies|warp_graphql": {
+          "sha256": "9ed38ecab2326ea2748308fc6c63235de0986390e43a024a4b124f80c618a8d2"
+        },
+        "dependencies|warp_harness_usage": {
+          "sha256": "de62d9dd5488c6e1b244c42f8bb017866a7155dcf8f0a8a8a9024d07fec86250"
+        },
+        "dependencies|warp_isolation_platform": {
+          "sha256": "45528fb0c9d1d3674170bf2298bb0456ef0792d68473e31e8afb7d9738d5814e"
+        },
+        "dependencies|warp_logging": {
+          "sha256": "32ebedf93a3da1442b4b72fe1048785be26efaa27bb19705362fb6e5f97ceb34"
+        },
+        "dependencies|warp_managed_secrets": {
+          "sha256": "96a6767224eb80ba5caadf390a33ff57922dbad173824177dca7e62390624102"
+        },
+        "dependencies|warp_multi_agent_api": {
+          "sha256": "b71a7c21b103541f32fd5442c1ccb4a394355a965d5717f60f666a21eaf548d6"
+        },
+        "dependencies|warp_multi_agent_client": {
+          "sha256": "fdd4c01ee273a7cf3f62022ecfed47c6232336e99bbfa5a2500dcb260a90ce1b"
+        },
+        "dependencies|warp_ripgrep": {
+          "sha256": "8041fa44563a3b2e6541803a114c5f8529bf54835edfbe06157639e94b0a177b"
+        },
+        "dependencies|warp_search_core": {
+          "sha256": "32b72f4ba1ca179840352c61371b1714a5b95619e214fefb3326c43351c495bd"
+        },
+        "dependencies|warp_server_auth": {
+          "sha256": "8de829c9a4aebe5c609a5cf386c2c9d0421eca872d99413a8818169f58c468c1"
+        },
+        "dependencies|warp_server_client": {
+          "sha256": "7915031384beb07147fc60b4487884136ab730d5c51a7a7f7fa2d25806275b41"
+        },
+        "dependencies|warp_terminal": {
+          "sha256": "0c244d97041043a0ea35691471a4dae4b009d229667adeac359b2b25e9536590"
+        },
+        "dependencies|warp_util": {
+          "sha256": "20d7eb5a855dd93589b6e82998a0ee4e0214411dd81d742a69931d09f6e28e7a"
+        },
+        "dependencies|warpui": {
+          "sha256": "393d260a5eb35e3bf1bcb0893ceeee2e235778b79f8bc5ab2f43682c9f6da08f"
+        },
+        "dependencies|warpui_core": {
+          "sha256": "321b942b2530cc84667cb81e82d16d1f89bcb426e1511eb3fe7a693a195d7b80"
+        },
+        "dependencies|warpui_extras": {
+          "sha256": "bb7f3c7a20043a4eec5eb42ff2a38e172cd9344fec0865fd6f41712e32d80a06"
+        },
+        "dependencies|websocket": {
+          "sha256": "ed24551cf3ab81bacb8c08df65b452b2da4f42087f4d3f512fb864aa40a1488e"
+        },
+        "dependencies|wgpu": {
+          "sha256": "84ce3cf89feda452982dbb2789c6f5bd01fb3811a6a3e9e476a4718103e5d289"
+        },
+        "dev-dependencies|ai": {
+          "sha256": "d073c1d016556fdd25ee6dcfa7087daccb72e4072dc445f73609964729bd1c68"
+        },
+        "dev-dependencies|async-executor": {
+          "sha256": "ac37295099ef7b034f98d9d9db2c0fcd8a368c935f973ca268399f433bc32600"
+        },
+        "dev-dependencies|async-process": {
+          "sha256": "db8d50c4cb86d946572fc1d91017b211bbf31f07365888a5e7aeed5952c8eb08"
+        },
+        "dev-dependencies|cloud_object_client": {
+          "sha256": "56ca5c3fb89e09d9728c726b87c5109dc1749eb40353e2c61cb8b47f868de91a"
+        },
+        "dev-dependencies|command": {
+          "sha256": "bca56c45f75c8b7df1cbe00289283e583d2e65680461236705c7391098d65369"
+        },
+        "dev-dependencies|computer_use": {
+          "sha256": "4a45d3016386892d8f5ed602a28c011bf636c6c4f79610d4178afb1fd5fdbe19"
+        },
+        "dev-dependencies|ctor": {
+          "sha256": "1bf08d24b79ef8584b0f2aff91b0180569355ccf0f7e2ce65964bceb5b301e33"
+        },
+        "dev-dependencies|firebase": {
+          "sha256": "e2a93b7b02bbafab7b223a9ff0a47609304e351b8d31677408316d491aa51373"
+        },
+        "dev-dependencies|http_client": {
+          "sha256": "583445d13293b5aec4b716fd84e24b25cd4b8c3eb57021da4b989254725e61cd"
+        },
+        "dev-dependencies|jsonschema": {
+          "sha256": "35c7ec88088d9187b05102a7d1ef87c924c01ad735df62ed1e4002ce0f441460"
+        },
+        "dev-dependencies|mockall": {
+          "sha256": "301fff0e4ec78388bf438c3092087f3fa031d83a3873540152e789160b0b0264"
+        },
+        "dev-dependencies|mockito": {
+          "sha256": "75fef277a4c0135ccef512d8a708d5a7611586137c54d0594b4690ffbe0a860b"
+        },
+        "dev-dependencies|repo_metadata": {
+          "sha256": "40a334925eb4b692af41187a82d38c6242f6d5762f7cc2ab5c6d9f08307fa133"
+        },
+        "dev-dependencies|serial_test": {
+          "sha256": "f78c21a564813493e54dded2ad66c9c485962ba0fcbae19176db8ff20a0b4207"
+        },
+        "dev-dependencies|sum_tree": {
+          "sha256": "4eb9b6694bc7b0004f8eed3bcfc5644ca1869e1d15e0fcaacaee119587764a9b"
+        },
+        "dev-dependencies|virtual-fs": {
+          "sha256": "34f544e5069d854a73e01af9500ae29f87e15e7f0bc460c2f280a0fa87ff8b21"
+        },
+        "dev-dependencies|warp_completer": {
+          "sha256": "f764086fbda36c7c72036131ad0287be36f15fa3feb92624162e535ec5df5f53"
+        },
+        "dev-dependencies|warp_core": {
+          "sha256": "0a7f86b1643e82cf356dfe384fe911972587f51291bca1f91df84de01f71e136"
+        },
+        "dev-dependencies|warp_editor": {
+          "sha256": "988d11a33dcf829c2d3267aa16818e29923f609e72b425313d67e88cbccfc86a"
+        },
+        "dev-dependencies|warp_files": {
+          "sha256": "16604622ac91f569d9e9b85592abbb26fa5466ddc1633cb36c77259f47ed773b"
+        },
+        "dev-dependencies|warp_server_auth": {
+          "sha256": "adb6025429cfc286c69e2995004ae768b6b27b550bc30aeb961f0d509e6a2f02"
+        },
+        "dev-dependencies|warp_server_client": {
+          "sha256": "2369db903c4c6bed9643df3e0b751dfc5e3ccbd28ffeabfb2506076d5cc6c9a1"
+        },
+        "dev-dependencies|warp_terminal": {
+          "sha256": "fb37b22a518b8c069c33841812fe668584d6d30a2f5eb20e12eaf7929d4c72e8"
+        },
+        "dev-dependencies|warpui": {
+          "sha256": "50616c7fe62e284a5b037bc78053f536757394151bdf3a7d6744e0c164eee53f"
+        },
+        "dev-dependencies|warpui_core": {
+          "sha256": "9b098933b773a13b7b7a2edc273d5af7630bfdaa6c2adb4ff4ce4ed9af22f752"
+        },
+        "dev-dependencies|warpui_extras": {
+          "sha256": "6cc0cc7dede8a0a094f9cbf5f0d273630c53cdce9733b561ada502e9452c7414"
+        },
+        "target.cfg(any(target_os = \"linux\", target_os = \"freebsd\")).dependencies|freedesktop-desktop-entry": {
+          "sha256": "38348d742bff5a8524cda227b7d4bd383c65853e7e8ae35d6b87078ce8cd27ae"
+        },
+        "target.cfg(any(target_os = \"linux\", target_os = \"freebsd\")).dependencies|x11rb": {
+          "sha256": "a520683d685860dfe5bab3c7d56bd4f58a803c8b7ed2b2fb63b69bc0abe34783"
+        },
+        "target.cfg(any(target_os = \"linux\", target_os = \"freebsd\")).dependencies|zbus": {
+          "sha256": "ed57e76aebc16ec2e2f09eabbf1aaf56575fbbdd1d0bdaa1ad90ae6d9f37a2b8"
+        },
+        "target.cfg(any(target_os = \"linux\", target_os = \"freebsd\", target_os = \"windows\")).dependencies|crash-handler": {
+          "sha256": "8576207665b55dc53691620869960d91b9cab96b184151df3bfef58143630558"
+        },
+        "target.cfg(any(target_os = \"linux\", target_os = \"freebsd\", target_os = \"windows\")).dependencies|minidumper": {
+          "sha256": "58a3497c537753233dc929c1aba6bf16f5f23b6b91ec701633c2c35d25d278d3"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|app-installation-detection": {
+          "sha256": "a874ba41604523e25fda346d5b1156cd5fab5b503b3c744b213fa04774468cea"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|async-io": {
+          "sha256": "9638ebc50d15b14e7b85ef526f05f8d635f4b05bef324d0e847e3126d90d9426"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|aws-config": {
+          "sha256": "6c12970834f60a80953b4443ecf93ef3baf9ecebf39f6d332299a514fba1ff1c"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|aws-credential-types": {
+          "sha256": "f76983c7e4744f0b380a82e22784477ad721ada6d7c75f9aa60913f74ce4d6d2"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|aws-sdk-sts": {
+          "sha256": "1c7ccc385159d444ae5ce329a41bf223eeffa706f091c589c478283d08173f43"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|aws-types": {
+          "sha256": "f76983c7e4744f0b380a82e22784477ad721ada6d7c75f9aa60913f74ce4d6d2"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|axum": {
+          "sha256": "747166500dc8e158fd312fd70866dd1538a06a690f6a96b178d9fca1938966bf"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|build_cache": {
+          "sha256": "c26aa9c77eafffbc7ae19259a64ca7097350de31c088b8864c00effb7d4adb9a"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|cloud_object_persistence": {
+          "sha256": "a8689a14beff2901dab33ff88e265221c3e2ea0ca74eb1aefcf4fe21ed53f307"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|comfy-table": {
+          "sha256": "0e18cc16cbb2682089e16e3b3902502ad4286e7aed2beb004d28ac5405d3fd06"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|diesel": {
+          "sha256": "5940f9dd0395a88d5d054fb1de5a990bbebaa5552d7503c789c68a2d25d418c1"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|diesel_migrations": {
+          "sha256": "c8b2a3bc9d8499f7f761cedd1ee0039e9cd1e11c9459e269cd19fe3c98b3fccf"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|env_logger": {
+          "sha256": "f407b71b7e106887e64be1001f9ddbcab633557977fd07a3366a295a09539515"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|git2": {
+          "sha256": "5599fb5f8cc952682abbcd235743184760c1d6ba2eed0217caae30e2b20778c5"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|http_server": {
+          "sha256": "1348055287cf27019f81514469cdb3036bc235a51d0f761134a77fd34593cffa"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|hyper": {
+          "sha256": "c5300642cfa1adb8d1d4d67517165b04e355115206115e493fa520f618a0d09d"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|inquire": {
+          "sha256": "83269ed15b2037577069a722830de2a08f18836f03bd82e161717eae8c1c2a20"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|is_executable": {
+          "sha256": "c1cac915ce817e54a91c0ee2f642e2e2ddceb23a6d820f68e6a42cc307d523e5"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|libsqlite3-sys": {
+          "sha256": "034f2f90aee091f2b81679aadd7bf0e8bf847236142ef01d7db41f6fd57e3e08"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|mio": {
+          "sha256": "d08a528bb1914a9451085f7add3cd7a559f54c149765b2a7b7395e99edd750ea"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|notify-debouncer-full": {
+          "sha256": "ab8edc0e92c5f3382ad2a05aa453455c9e87af5722ebea27f65ea4b8b9bc3501"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|opentelemetry": {
+          "sha256": "42d83d82a4733acdc7a6ffdf77e98270994222b4d10b822809a4f72b80489dc7"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|opentelemetry-http": {
+          "sha256": "e370f2b49e9f2cd1534794e77534271dfee79c6ae653fa70830ebb139a4ac510"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|opentelemetry-otlp": {
+          "sha256": "691426dfeafced9a67c9470d19766d3edaaedebba66ec99c52e4f7192ffac6fc"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|opentelemetry_sdk": {
+          "sha256": "6a9bc0aa1fa3a753ac3e3744052545d4a7ede0dea28499a8f5007451d509d227"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|rustls": {
+          "sha256": "c711b26fcc3b412b223c7473aae774e9b1d463a80ec8d33e186a9a3d06a2ff03"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|syntect": {
+          "sha256": "487009674c193376258434d1d31c0ab53d46e2319e4e3d92a2f5c0fed8310883"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|sysinfo": {
+          "sha256": "ae1c19d0942dfdf1520d351eb7257190aeb5acbe84a7b82c3f98259a74406511"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|tokio": {
+          "sha256": "bf8437a04464bae92da5fa483dab0c8c4455ff026d0820c7a108619d4d6e7c5a"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|tokio-util": {
+          "sha256": "4627c252701219415a0760a8ee92e39f7210ee87479fa26d0d430379e9db3d10"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|tracing-opentelemetry": {
+          "sha256": "2d39188837dd49c92c87493e309fecf7cc8413ef83e446afb993988e2725962f"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|tracing-subscriber": {
+          "sha256": "14a8ccdbe20a05086b79aa7a74c86443230e01ed674833eb6dbf9f46d6d2f038"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|warp-command-signatures": {
+          "sha256": "7688637b648ce29df736f98e8c8385c429888675157ef5e0e528d6a4f9bc77a0"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|warp_errors": {
+          "sha256": "b8ee0e3cdeb6fc9926fca353219049143a62b539d59746f68163508f093270e7"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|warp_files": {
+          "sha256": "76e7e07bfcd251396e6c26fd9a9d146cab6be86609e3fd30e096b9050b7d6f58"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|watcher": {
+          "sha256": "97076f75078fb400de0cc3adadc77501627d469f9d9fa7aa3ab1bec7626dcfc1"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dev-dependencies|tokio": {
+          "sha256": "69b0ccb8fa8a56fe0ea94925edfcd07ad845e6370bf69de311d151f762c3e956"
+        },
+        "target.cfg(not(target_os = \"macos\")).dependencies|wgpu": {
+          "sha256": "3345d306e650935e01f00eb625e759b26c868f8193f2fb285e92ee5445aaef18"
+        },
+        "target.cfg(not(target_os = \"macos\")).dependencies|winit": {
+          "sha256": "48daad0c4d6ed3f4c6dbac83600b0147afd3fe997c0599849dc81cb5651d812c"
+        },
+        "target.cfg(target_family = \"wasm\").dependencies|console_error_panic_hook": {
+          "sha256": "0361f1b50091802ac336667825cbf3910db6dfc521a2d2a800a824200e8b48a6"
+        },
+        "target.cfg(target_family = \"wasm\").dependencies|futures-timer": {
+          "sha256": "dcca75990a42ab2866d724c2756a4e82e799b63ea523ae851f0d36b018112f9b"
+        },
+        "target.cfg(target_family = \"wasm\").dependencies|getrandom": {
+          "sha256": "0c96f15b916e25a209b7d72963a17b99519bcfdb1cc6b947cee1500e88535b12"
+        },
+        "target.cfg(target_family = \"wasm\").dependencies|gloo": {
+          "sha256": "e57c2905b85cea8ed532ec8d7057bfdadfcbda2c69976857cb78934458fa99fc"
+        },
+        "target.cfg(target_family = \"wasm\").dependencies|js-sys": {
+          "sha256": "69d97695a01ce976d4053b96af9b88468c4daafb944878de26ff1cdbe6087e26"
+        },
+        "target.cfg(target_family = \"wasm\").dependencies|rust-embed": {
+          "sha256": "c7e105b2e637300fe8b70f9eae3c52f865f81f69f1a427f27c284888d19c84b8"
+        },
+        "target.cfg(target_family = \"wasm\").dependencies|serde-wasm-bindgen": {
+          "sha256": "47eeede4ea730b3d5d948981f9cb197cc75a68aa8e4c696597898ee9b86a9a62"
+        },
+        "target.cfg(target_family = \"wasm\").dependencies|syntect": {
+          "sha256": "cf1402d69e6c733984b10aba5b57ad224e3fe49f4da923360fbeddcf3dd944ff"
+        },
+        "target.cfg(target_family = \"wasm\").dependencies|warp-command-signatures": {
+          "sha256": "6884c4eccd3fd04821b67757633d1acf7ffe6a1f5e7b6b4b41a5a8fd380e0d62"
+        },
+        "target.cfg(target_family = \"wasm\").dependencies|warp_web_event_bus": {
+          "sha256": "e0bd6c5b84ead38c771643569d18b04d91581c1cbefceb971e0bf4967d0d0bff"
+        },
+        "target.cfg(target_family = \"wasm\").dependencies|wasm-bindgen": {
+          "sha256": "0c9fe8edf0b8c30099455de404093de96d63cc0a705376677ad39546abec7e89"
+        },
+        "target.cfg(target_family = \"wasm\").dependencies|web-sys": {
+          "sha256": "cf9a725199e2c3453073a5a5ab01631be0dabbf4033700db0d82a6b3f983843d"
+        },
+        "target.cfg(target_os = \"macos\").dependencies|block": {
+          "sha256": "0361f1b50091802ac336667825cbf3910db6dfc521a2d2a800a824200e8b48a6"
+        },
+        "target.cfg(target_os = \"macos\").dependencies|cocoa": {
+          "sha256": "26ead877dad5d2c6ca573f1195893643ff138e98950c1a758e3c2e9d6d0891ca"
+        },
+        "target.cfg(target_os = \"macos\").dependencies|core-foundation": {
+          "sha256": "b76759025187a85bd0e67d52d82eee4d04b8c4f7e22c5ecf6435fcdc80da51d8"
+        },
+        "target.cfg(target_os = \"macos\").dependencies|mach2": {
+          "sha256": "122fad8fe4bd6465f0cf9fec2ec63007cf671c250ab7dd891f4f102cbfca82f9"
+        },
+        "target.cfg(target_os = \"macos\").dependencies|objc": {
+          "sha256": "f4df8cce100ab9a312be1fdebd3f27281b81b2ecea0ef8d522a6d51689b10878"
+        },
+        "target.cfg(target_os = \"macos\").dependencies|objc2": {
+          "sha256": "dd9b64422c10595c57963c20196fdddda56d01e42896acdf576a3e1db5db4855"
+        },
+        "target.cfg(target_os = \"macos\").dependencies|objc2-app-kit": {
+          "sha256": "0226361ad80822cd23513b5f1a06fd2f14a0e92e60a3013b20768caa2921bb35"
+        },
+        "target.cfg(target_os = \"macos\").dependencies|objc2-core-foundation": {
+          "sha256": "3586fe81748c7cb00d42cf1e8e3004d48819f033ac3588eba23be50aa1188bdf"
+        },
+        "target.cfg(target_os = \"macos\").dependencies|objc2-foundation": {
+          "sha256": "5b9b87cf48ce40aa2f416726b9e3d26f53f3820ba7713041f1ef4de410f72f62"
+        },
+        "target.cfg(target_os = \"macos\").dependencies|permissions": {
+          "sha256": "5c26a605a9e71c9d080d7c9b87264104474fbf1a7501998fedbb9645f02cc725"
+        },
+        "target.cfg(target_os = \"macos\").dependencies|pprof": {
+          "sha256": "3afabf207c30b2bd1d798925f0359fe74f79f8991506127efc361626dc0b6b0f"
+        },
+        "target.cfg(target_os = \"macos\").dependencies|security-framework-sys": {
+          "sha256": "1d2c2323734d87d72e2ee9426f5bbb9d71ef14d9ac2a68c29e9bb3148e123764"
+        },
+        "target.cfg(target_os = \"windows\").dependencies|bytemuck": {
+          "sha256": "b34485b6cfea7c3867756789cc96ee20d917025d3e392ec157d2d46fdded325e"
+        },
+        "target.cfg(target_os = \"windows\").dependencies|windows": {
+          "sha256": "2ea9ebf260c248f9271061e95668f435270ba31c439711f366ece9c8c197413a"
+        },
+        "target.cfg(target_os = \"windows\").dependencies|windows-registry": {
+          "sha256": "ac935545c45e596850b5c4e68a98d4546bd033a35d0062f8ba6b7f496f86dd89"
+        },
+        "target.cfg(target_os = \"windows\").dependencies|windows-result": {
+          "sha256": "ac935545c45e596850b5c4e68a98d4546bd033a35d0062f8ba6b7f496f86dd89"
+        },
+        "target.cfg(target_os = \"windows\").dependencies|winreg": {
+          "sha256": "213e77fc1bcf25ab93f7605e1b78c62b944f6416c88eb742b98b0ef46bdda70e"
+        },
+        "target.cfg(unix).dependencies|nix": {
+          "sha256": "f71335ee5171b4993170d33e311dde526abeed4b188b7e293287b0b1f926185a"
+        },
+        "target.cfg(unix).dependencies|signal-hook": {
+          "sha256": "5f586c0a2c2baeb4b5b95fd71044af096fdbd292ac204bcb0f05acd2887c57c4"
+        },
+        "target.cfg(unix).dependencies|signal-hook-tokio": {
+          "sha256": "77b0ac0a11c75ac25b894804c7c286df84c4d3e75cb796d63f0cdf5488d6c3af"
+        },
+        "target.cfg(windows).build-dependencies|embed-resource": {
+          "sha256": "1a2322e8485ce17397c9e5a16d4a503e98f60b58f857c4b6f538a674e83b6e59"
+        }
+      },
+      "features": [
+        "account_first_onboarding",
+        "acp_harness",
+        "active_conversation_requires_interaction",
+        "agent_cli_launch_modal",
+        "agent_decides_command_execution",
+        "agent_harness",
+        "agent_management_details_view",
+        "agent_management_view",
+        "agent_mode",
+        "agent_mode_computer_use",
+        "agent_mode_debug",
+        "agent_mode_evals",
+        "agent_mode_pre_plan_xml",
+        "agent_mode_primary_xml",
+        "agent_onboarding",
+        "agent_prompt_steering",
+        "agent_shared_sessions",
+        "agent_tips",
+        "agent_toolbar_editor",
+        "agent_view",
+        "agent_view_block_context",
+        "agent_view_conversation_list_view",
+        "agent_view_prompt_chip",
+        "ai_context_menu",
+        "ai_context_menu_code",
+        "ai_context_menu_commands",
+        "ai_resume_button",
+        "ai_rules",
+        "alacritty_settings_import",
+        "allow_ignoring_input_suggestions",
+        "allow_opening_file_links_using_editor_env",
+        "am_workflows",
+        "ambient_agents_command_line",
+        "ambient_agents_image_upload",
+        "ambient_agents_rtc",
+        "api_key_management",
+        "artifact_command",
+        "ask_user_question",
+        "async_find",
+        "at_menu_outside_of_ai_mode",
+        "auto_open_code_review_pane",
+        "autoupdate",
+        "autoupdate_ui_revamp",
+        "avatar_in_tab_bar",
+        "background_computer_use",
+        "billing_and_usage_page_v2",
+        "blocklist_markdown_images",
+        "blocklist_markdown_table_rendering",
+        "bundled_skills",
+        "changelog",
+        "chatgpt_subscription",
+        "classic_completions",
+        "clear_autosuggestion_on_escape",
+        "cli_agent_rich_input",
+        "cloud_agent_execution_config",
+        "cloud_agent_runners",
+        "cloud_agent_shell_respawn",
+        "cloud_conversations",
+        "cloud_environments",
+        "cloud_mode",
+        "cloud_mode_from_local_session",
+        "cloud_mode_image_context",
+        "cloud_mode_input_v2",
+        "cloud_mode_setup_v2",
+        "cloud_runners",
+        "cocoa_sentry",
+        "code_find_replace",
+        "code_launch_modal",
+        "code_mode_chip",
+        "code_review_find",
+        "code_review_save_changes",
+        "codebase_index_persistence",
+        "codebase_index_speedbump",
+        "codex_notifications",
+        "codex_plugin",
+        "command_correction_key",
+        "command_palette_file_search",
+        "configurable_toolbar",
+        "context_line_review_comments",
+        "context_window_usage_breakdown",
+        "context_window_usage_v2",
+        "conversation_api",
+        "conversation_artifacts",
+        "conversations_as_context",
+        "crash_reporting",
+        "create_environment_slash_command",
+        "create_project_flow",
+        "creating_shared_sessions",
+        "cross_repo_context",
+        "ctrl_c_cancels_third_party_harness",
+        "custom_model_routers",
+        "cycle_next_command_suggestion",
+        "default",
+        "default_adeberry_theme",
+        "default_waterfall_mode",
+        "dhat_heap_profiling",
+        "diff_set_as_context",
+        "directory_tab_colors",
+        "discard_per_file_and_all_changes",
+        "drag_tabs_to_windows",
+        "drive_objects_as_context",
+        "dynamic_workflow_enums",
+        "editable_markdown_mermaid",
+        "embedded_code_review_comments",
+        "expand_edit_to_pane",
+        "extern_plist",
+        "external_agent_mode_context",
+        "factory_deferred_repositories",
+        "factory_mcp",
+        "fallback_model_load_output_messaging",
+        "fast_dev",
+        "fast_forward_autoexecute_button",
+        "figma_detection",
+        "file_and_diff_set_comments",
+        "file_backed_execution_profiles",
+        "file_based_mcp",
+        "file_retrieval_tools",
+        "file_tree",
+        "force_classic_completions",
+        "fork_from_command",
+        "full_screen_zen_mode",
+        "full_source_code_embedding",
+        "gemini_enterprise",
+        "get_started_tab",
+        "git_credential_refresh",
+        "git_operations_in_code_review",
+        "github_pr_prompt_chip",
+        "global_ai_analytics_banner",
+        "global_ai_analytics_collection",
+        "global_search",
+        "gpt_configurable_context_window",
+        "grep_tool",
+        "grouped_tabs",
+        "gui",
+        "handoff_cloud_cloud",
+        "handoff_local_cloud",
+        "heap_usage_tracking",
+        "history_search_ranking_v2",
+        "hoa_code_review",
+        "hoa_notifications",
+        "hoa_onboarding_flow",
+        "hoa_remote_control",
+        "image_as_context",
+        "ime_marked_text",
+        "in_band_generators_ssh",
+        "incremental_auto_reload",
+        "inline_code_review",
+        "inline_history_menu",
+        "inline_menu_headers",
+        "inline_model_selector",
+        "inline_profile_selector",
+        "inline_repo_menu",
+        "inline_slash_commands",
+        "integration_command",
+        "integration_tests",
+        "interactive_conversation_management_view",
+        "iterm_images",
+        "jemalloc",
+        "jemalloc_auto_heap_profiling",
+        "jemalloc_pprof",
+        "jemalloc_with_profiling",
+        "jupyter_notebook_rendering",
+        "kitty_images",
+        "kitty_keyboard_protocol",
+        "ligatures",
+        "linked_code_blocks",
+        "list_skills",
+        "local_claude_codex_child_harnesses",
+        "local_computer_use",
+        "local_fs",
+        "local_tty",
+        "log_expensive_frames_in_sentry",
+        "loginless_conversion",
+        "lsp_as_a_tool",
+        "markdown_mermaid",
+        "markdown_tables",
+        "mcp_debugging_ids",
+        "mcp_grouped_server_context",
+        "mcp_oauth",
+        "mcp_server",
+        "minimalist_ui",
+        "msys2_shells",
+        "multi_profile",
+        "multi_workspace",
+        "named_agents",
+        "native_shell_completions",
+        "new_tab_styling",
+        "nld_classifier_v1",
+        "nld_classifier_v2",
+        "nld_classifier_v3",
+        "nld_heuristic_v1",
+        "nld_heuristic_v2",
+        "nld_prompt_history_match",
+        "open_code_notifications",
+        "open_warp_launch_modal",
+        "orchestration_launch_modal",
+        "osc_hyperlinks",
+        "oz_changelog_updates",
+        "oz_handoff",
+        "oz_identity_federation",
+        "oz_launch_modal",
+        "oz_platform_skills",
+        "partial_next_command_suggestions",
+        "pending_user_query_indicator",
+        "pinned_tabs",
+        "pluggable_notifications",
+        "pprof_cpu_profiling",
+        "pr_comments_skill",
+        "pr_comments_v2",
+        "predict_am_queries",
+        "preview_channel",
+        "preview_urls_mcp",
+        "profiles_design_revamp",
+        "projects",
+        "prompt_cache_expiry_warning",
+        "prompt_suggestions_via_maa",
+        "queue_slash_command",
+        "queued_prompts_v2",
+        "read_image_files",
+        "record_app_active_events",
+        "recording_mode",
+        "rect_selection",
+        "release_bundle",
+        "reload_stale_conversation_files",
+        "remote_code_review",
+        "remote_codebase_indexing",
+        "remote_tty",
+        "render_agent_mode_output_markdown",
+        "render_continuous_block_selections_with_single_border",
+        "resize_fix",
+        "restore_prompt_on_inline_model_selector_search",
+        "retry_truncated_code_responses",
+        "revert_diff_hunk",
+        "revert_to_checkpoints",
+        "rewind_slash_command",
+        "richtext_multiselect",
+        "run_generators_with_cmd_exe",
+        "runtime_feature_flags",
+        "scheduled_ambient_agents",
+        "search_codebase_ui",
+        "selectable_prompt",
+        "selection_as_context",
+        "send_telemetry_to_file",
+        "sequential_storage",
+        "session_sharing_acls",
+        "settings_file",
+        "shared_block_title_generation",
+        "shared_session_long_running_commands",
+        "shared_with_me",
+        "shell_selector",
+        "shell_widget_handoff",
+        "simulate_github_unauthed",
+        "skill_arguments",
+        "skip_firebase_anonymous_user",
+        "skip_login",
+        "solo_user_byok",
+        "ssh_drag_and_drop",
+        "standalone",
+        "stored_screenshots",
+        "suggested_agent_mode_workflows",
+        "suggested_rules",
+        "summarization_cancellation_confirmation",
+        "summarization_via_message_replacement",
+        "summarize_conversation_command",
+        "supergrok",
+        "sync_ambient_plans",
+        "tab_close_button_on_left",
+        "tab_configs",
+        "tabbed_editor_view",
+        "team_api_keys",
+        "terminal_lifecycle_recovery",
+        "test-util",
+        "traces",
+        "transfer_control_tool",
+        "trim_trailing_blank_lines",
+        "tui",
+        "ui_zoom",
+        "undo_closed_panes",
+        "usage_based_pricing",
+        "use_tantivy_search",
+        "v4a_file_diffs",
+        "validate_autosuggestions",
+        "vertical_tabs",
+        "vertical_tabs_summary_mode",
+        "viewing_shared_sessions",
+        "vim_code_editor",
+        "voice_input",
+        "warp_control_cli",
+        "warp_managed_secrets",
+        "warp_packs",
+        "warpify_footer",
+        "warping_model_name",
+        "web_fetch_ui",
+        "web_search_ui",
+        "well_known_mcp_ids",
+        "workflow_aliases"
+      ]
+    },
+    "crates/warp_terminal/Cargo.toml": {
+      "sha256": "e5cecd46b8c68dff01fd23b6a9ef79d508b18ea1d2e26aaadb9d8f353d902655",
+      "dependencies": {
+        "dependencies|anyhow": {
+          "sha256": "4e3043229142b64d998563bc543ce034e0a2251af5d404995e3afcb8ce8850df"
+        },
+        "dependencies|async-broadcast": {
+          "sha256": "a2eff284ff918a6849e8b824fe7772ab49aab42505cc5d87599d886cb9ade359"
+        },
+        "dependencies|async-channel": {
+          "sha256": "44406a8c68c27a957c5f875618268a648680cad1008d9d4376817b331fa8e3c8"
+        },
+        "dependencies|base64": {
+          "sha256": "0c709c6643a9c322de0e2940608bf996a0ce9520553af72bfdc18ebbedda5953"
+        },
+        "dependencies|bimap": {
+          "sha256": "39f44ccdd92a781451979bca06fa474df25e721d2f4104cc41490f133f0a091c"
+        },
+        "dependencies|bincode": {
+          "sha256": "7b81bc58e6c8ba000e12377276caee1ca73e2c29f0d84907054ced5605c1556e"
+        },
+        "dependencies|bitflags": {
+          "sha256": "0ebcba0e8dfb9c7bf04acb67f0f1e8c8fa84040510588138fa61f7dbb29b3742"
+        },
+        "dependencies|bitflags-serde-legacy": {
+          "sha256": "da2ec7fee713eb694c2690fcb946820a6c12f0cad10acdfa4bc650a1564a72f5"
+        },
+        "dependencies|bounded-vec-deque": {
+          "sha256": "275de2da62a30ec3b67dd9080931c351b347d2521a05f8443f3a1f8cdcded8de"
+        },
+        "dependencies|byte-unit": {
+          "sha256": "d0bc2bedfac65c384356ebf773080c3f8a78c40549edd8adc54c420bb2676c8e"
+        },
+        "dependencies|cfg-if": {
+          "sha256": "662b20289aeb1a425be4082c8c0065f68818c127fd3b35e30b11f8bf03b2bdcb"
+        },
+        "dependencies|channel_versions": {
+          "sha256": "8f022fef667ec777a5f71beb2b26af2269c3701cc91dcb7a6eddb70db443dfe0"
+        },
+        "dependencies|command": {
+          "sha256": "78a713192c06725d4c8c2544c7817c3349ed7cafaa0fcf85ec55973bcb154c34"
+        },
+        "dependencies|command-corrections": {
+          "sha256": "b5a6e30ebf248e3a3c592fee5f12ca07beb1dcb12c865060cf7176c9b695464a"
+        },
+        "dependencies|enum-iterator": {
+          "sha256": "438e23852eb6501fb000c4d5fe14b6a3c2eab73fcba9829acde93e01e7ff3eef"
+        },
+        "dependencies|flate2": {
+          "sha256": "5a6abfc968986e3ea959a51e6213ecace273f92ac6d0f16af59923aa612dff58"
+        },
+        "dependencies|futures": {
+          "sha256": "5e21b45eeb612bf0d8cb456712dafdce3db9d5877cf4ee266b6ad967624fc77a"
+        },
+        "dependencies|futures-lite": {
+          "sha256": "d0f3f48c5f1e3da4c297e65a9c22f9492a8320ee427f057bff24918050b2c2ce"
+        },
+        "dependencies|get-size": {
+          "sha256": "f3287461185aff4c43a7031332c19a52750b635cdac99f8a1c208ce17c203906"
+        },
+        "dependencies|hex": {
+          "sha256": "c2d3c8adcf8d7e6ed91d63c4c0ec70cbab2ccacba77fa4a0f86849a80af1268b"
+        },
+        "dependencies|image": {
+          "sha256": "6f2624a81a6d1d442c641f83de05d0ccef16a07f26372be2d3bcc2b663ed550c"
+        },
+        "dependencies|instant": {
+          "sha256": "a2665098210021c32456dd00e7200996db063f2936a6d9507b0495ddb4006244"
+        },
+        "dependencies|itertools": {
+          "sha256": "e6e6c7b357f78b74d63c7206b5ac12052ada06168a795e0c9833f581105161bb"
+        },
+        "dependencies|lazy_static": {
+          "sha256": "214652dfeb982e30d58a3f18e3378e7f8ad8d2cbf518ca5e83f584990dcaff30"
+        },
+        "dependencies|libc": {
+          "sha256": "71fcfccba860bbc989888f475f13f7259921155ceb5bbb1ada2ee15028cdbb20"
+        },
+        "dependencies|log": {
+          "sha256": "f9f789d2b34aa67c877fea6e7d0cbaf07e2e1fbba4619f724cdcb7f317f26389"
+        },
+        "dependencies|memo-map": {
+          "sha256": "dd395d41f72cbbf6705e51cff1f43e430a77c353aa98682d24ea7ce3fe24c026"
+        },
+        "dependencies|ordered-float": {
+          "sha256": "57891294d5e1eb2f58cf3d749b2e317d7942aaa0f18bcf77b7197032f9d7ea1f"
+        },
+        "dependencies|parking_lot": {
+          "sha256": "6c64ef18a4d91814b64e2c258887400d65110764ed9c5cbc75fb08b9e71f03da"
+        },
+        "dependencies|pathfinder_color": {
+          "sha256": "122fad8fe4bd6465f0cf9fec2ec63007cf671c250ab7dd891f4f102cbfca82f9"
+        },
+        "dependencies|pathfinder_geometry": {
+          "sha256": "d6afc30dd08180f18ed5bb0148127b06c535f1e6d9ed4ec56ad915624391179c"
+        },
+        "dependencies|rand": {
+          "sha256": "661c073dd2b321172411c4fcee0da87a2f22c18a3d57d8d1ede00a450e1ae580"
+        },
+        "dependencies|rangemap": {
+          "sha256": "e392247904fdaff9add6ebe957e513c93eace29463ef4eba9117c95ef723f2d6"
+        },
+        "dependencies|regex": {
+          "sha256": "378b695dce30e47bc2f55c225fcf898effd1f9c8be94c649e5735f7a860bf2b6"
+        },
+        "dependencies|regex-automata": {
+          "sha256": "c37c7325a29ca1a38a91fad97419dac37da270c558a13eadd1f86654d6aa551b"
+        },
+        "dependencies|regex_dfas": {
+          "sha256": "2301a93d9113c3cb897702a7fdc6dea7b7c03b0dd7d45808bd8d46778d12a45d"
+        },
+        "dependencies|secret_redaction": {
+          "sha256": "5b913b91ae9e59a25711852886f324f25a47ba987aa6e85374e8989864a806fb"
+        },
+        "dependencies|sentry": {
+          "sha256": "458b9921bb9f9c6271ea64b786de765ac1b01ed9a78f400b40753f06fae3e9be"
+        },
+        "dependencies|serde": {
+          "sha256": "1fab9ac5326bb2ac614ddc77bf968bfa215d787e5d671da6ece084c5dba06fac"
+        },
+        "dependencies|serde_json": {
+          "sha256": "5d0f806dc153c406e5b2a5e99a2b39fc291d846224cc138038a8a69747f439fe"
+        },
+        "dependencies|session-sharing-protocol": {
+          "sha256": "bcee374fc1ae66f07bdc663c0d2ef1f81c21dc4fee95d4e525cd7e0cc507733b"
+        },
+        "dependencies|shellexpand": {
+          "sha256": "24a67de8af3ef9b2c74b358c382f53c247bf8986dbf882f24901a03b4ed7331b"
+        },
+        "dependencies|smallvec": {
+          "sha256": "da983c5cc16eef0aeebf15cd3c0de165efe84261b280c708e7375b552defae7f"
+        },
+        "dependencies|smol_str": {
+          "sha256": "23d402f47bfc54380f03e6edbc47930a7d41e1007e25a52a3a13c7a6e03e4a47"
+        },
+        "dependencies|static_assertions": {
+          "sha256": "aa3bbf7b3112fddfcabf8916223c063318e7a012efaba8f2d11b999028e5c435"
+        },
+        "dependencies|string-offset": {
+          "sha256": "f8777ca2d21b49e5203a13f5f2ba3f1bf70abe8ac45678c51c9951b4de795467"
+        },
+        "dependencies|thiserror": {
+          "sha256": "9e3aa54e11b86061cf040a6c3a09adf241d8d7c07b2b6c490a85dda282fbfd56"
+        },
+        "dependencies|typed-path": {
+          "sha256": "f407b71b7e106887e64be1001f9ddbcab633557977fd07a3366a295a09539515"
+        },
+        "dependencies|unicode-general-category": {
+          "sha256": "aa3bbf7b3112fddfcabf8916223c063318e7a012efaba8f2d11b999028e5c435"
+        },
+        "dependencies|unicode-width": {
+          "sha256": "37ebc09c4c5f021fe79eaef743f1bd7cd1468057d10557292850b7ecfb66b375"
+        },
+        "dependencies|urlocator": {
+          "sha256": "5aaf8a44e005d0a28fbd95a43a475f89fd3304babd02881174b7b970517525a4"
+        },
+        "dependencies|uuid": {
+          "sha256": "182dd43994639b0ef778b0c61eb6cc1baab66bd8307339d50acc2eb20f146c11"
+        },
+        "dependencies|vec1": {
+          "sha256": "292b5fd0a2dcd425dbc5b7fbfb899dbd369e64e2fe201a3b7d4d371b9d20d8ab"
+        },
+        "dependencies|version-compare": {
+          "sha256": "275de2da62a30ec3b67dd9080931c351b347d2521a05f8443f3a1f8cdcded8de"
+        },
+        "dependencies|vte": {
+          "sha256": "942327e7f16169247812bb76e64c63e63be40859c4accb8a3fb5852d7653e7e2"
+        },
+        "dependencies|warp_assets": {
+          "sha256": "182411b3d2474b3ba8dc26f15a159bf55f69c6272b20f6d714ac633f4cd8da6a"
+        },
+        "dependencies|warp_cli": {
+          "sha256": "bf3c022bf63f24776ecee1242c8339e60d7d8391aaabe311803a41be8e72b613"
+        },
+        "dependencies|warp_completer": {
+          "sha256": "2ddce111d79ae174cb2e4ceb79fec2111f1b89b2569c36b4f112c15e5130c978"
+        },
+        "dependencies|warp_core": {
+          "sha256": "fa7f9eb918b11a5dd879c0e757943c07b32a72132686cf06867ad7e123560011"
+        },
+        "dependencies|warp_errors": {
+          "sha256": "42b3d240a747abf220b272ed3a06a3818ce90d11f410343f26b9e3da084756be"
+        },
+        "dependencies|warp_isolation_platform": {
+          "sha256": "45528fb0c9d1d3674170bf2298bb0456ef0792d68473e31e8afb7d9738d5814e"
+        },
+        "dependencies|warp_util": {
+          "sha256": "20d7eb5a855dd93589b6e82998a0ee4e0214411dd81d742a69931d09f6e28e7a"
+        },
+        "dependencies|warpui_core": {
+          "sha256": "321b942b2530cc84667cb81e82d16d1f89bcb426e1511eb3fe7a693a195d7b80"
+        },
+        "dev-dependencies|serial_test": {
+          "sha256": "f78c21a564813493e54dded2ad66c9c485962ba0fcbae19176db8ff20a0b4207"
+        },
+        "dev-dependencies|tempfile": {
+          "sha256": "11de9cf4c28ca90d9843e7783f00efc00ac2a86b0627fa46365e292248519beb"
+        },
+        "dev-dependencies|unicode-segmentation": {
+          "sha256": "c738b62b81550aedb350cf0aebe2fc7c8e0c457a43bc1de0cb57a650cb82db0d"
+        },
+        "dev-dependencies|warp_core": {
+          "sha256": "0a7f86b1643e82cf356dfe384fe911972587f51291bca1f91df84de01f71e136"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|async-io": {
+          "sha256": "9638ebc50d15b14e7b85ef526f05f8d635f4b05bef324d0e847e3126d90d9426"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|gethostname": {
+          "sha256": "aa3bbf7b3112fddfcabf8916223c063318e7a012efaba8f2d11b999028e5c435"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|mio": {
+          "sha256": "d08a528bb1914a9451085f7add3cd7a559f54c149765b2a7b7395e99edd750ea"
+        },
+        "target.cfg(target_os = \"windows\").dependencies|bytemuck": {
+          "sha256": "b34485b6cfea7c3867756789cc96ee20d917025d3e392ec157d2d46fdded325e"
+        },
+        "target.cfg(target_os = \"windows\").dependencies|windows": {
+          "sha256": "2ea9ebf260c248f9271061e95668f435270ba31c439711f366ece9c8c197413a"
+        },
+        "target.cfg(target_os = \"windows\").dependencies|windows-registry": {
+          "sha256": "ac935545c45e596850b5c4e68a98d4546bd033a35d0062f8ba6b7f496f86dd89"
+        },
+        "target.cfg(target_os = \"windows\").dependencies|windows-result": {
+          "sha256": "ac935545c45e596850b5c4e68a98d4546bd033a35d0062f8ba6b7f496f86dd89"
+        },
+        "target.cfg(target_os = \"windows\").dependencies|winreg": {
+          "sha256": "213e77fc1bcf25ab93f7605e1b78c62b944f6416c88eb742b98b0ef46bdda70e"
+        },
+        "target.cfg(unix).dependencies|cvt": {
+          "sha256": "da2ec7fee713eb694c2690fcb946820a6c12f0cad10acdfa4bc650a1564a72f5"
+        },
+        "target.cfg(unix).dependencies|nix": {
+          "sha256": "fb65ff78740620bfd1087ec9c3a06dbb5433c47322a3f4d11f7d53b8815337c4"
+        },
+        "target.cfg(unix).dependencies|signal-hook": {
+          "sha256": "e523469a74275d224ea4bf52ba66760d8afc08a2ca5a40ec6279ae1741237adc"
+        },
+        "target.cfg(unix).dependencies|signal-hook-mio": {
+          "sha256": "9dbbfc1d435f3dce8a5c6062c28475018027d4efd2d4c4a3919b621fd8b6b6f5"
+        }
+      },
+      "features": [
+        "crash_reporting",
+        "integration_tests",
+        "local_fs",
+        "local_tty",
+        "remote_tty",
+        "test-util",
+        "tui"
+      ]
+    },
+    "app/src/lib.rs": {
+      "sha256": "ecd7735b2ffee0571a2a99920da81962ef88fdcb7f882d626cd7890d137d4692",
+      "registrations": {
+        "modules": [
+          "ai",
+          "ai_assistant",
+          "alloc",
+          "antivirus",
+          "app_menus",
+          "app_services",
+          "app_state",
+          "appearance",
+          "auth",
+          "autoupdate",
+          "banner",
+          "billing",
+          "changelog_model",
+          "channel",
+          "chip_configurator",
+          "cloud_object",
+          "code",
+          "code_review",
+          "coding_entrypoints",
+          "coding_panel_enablement_state",
+          "command_palette",
+          "completer",
+          "context_chips",
+          "crash_recovery",
+          "crash_reporting",
+          "debug_dump",
+          "default_terminal",
+          "download_method",
+          "drive",
+          "dynamic_libraries",
+          "editor",
+          "env_vars",
+          "experiments",
+          "external_secrets",
+          "features",
+          "font_fallback",
+          "global_resource_handles",
+          "gpu_state",
+          "input_classifier",
+          "input_suggestions",
+          "integration_testing",
+          "interval_timer",
+          "keyboard",
+          "launch_configs",
+          "linear",
+          "local_control",
+          "login_item",
+          "menu",
+          "modal",
+          "network",
+          "notebooks",
+          "notification",
+          "palette",
+          "pane_group",
+          "persistence",
+          "platform",
+          "prefix",
+          "preview_config_migration",
+          "pricing",
+          "profiling",
+          "projects",
+          "prompt",
+          "quit_warning",
+          "referral_theme_status",
+          "remote_server",
+          "resource_center",
+          "resource_limits",
+          "reward_view",
+          "root_view",
+          "safe_triangle",
+          "search",
+          "search_bar",
+          "server",
+          "session_management",
+          "settings",
+          "settings_view",
+          "shell_indicator",
+          "suggestions",
+          "system",
+          "tab",
+          "tab_configs",
+          "terminal",
+          "test_util",
+          "tests",
+          "themes",
+          "throttle",
+          "tips",
+          "tracing",
+          "tui",
+          "tui_export",
+          "tui_onboarding_markers",
+          "tui_test_support",
+          "ui_components",
+          "undo_close",
+          "uri",
+          "user_config",
+          "util",
+          "view_components",
+          "vim_registers",
+          "voice",
+          "voltron",
+          "warp_managed_paths_watcher",
+          "wasm_nux_dialog",
+          "window_settings",
+          "word_block_editor",
+          "workflows",
+          "workspace",
+          "workspaces"
+        ],
+        "init_calls": [
+          "ai::agent::todos::popup::init",
+          "ai::blocklist::agent_view::editor::init",
+          "ai::blocklist::block::status_bar::init",
+          "ai::blocklist::init",
+          "ai::custom_endpoints::init",
+          "ai::init",
+          "ai_assistant::panel::init",
+          "app_services::init",
+          "auth::init",
+          "billing::shared_objects_creation_denied_modal::init",
+          "code::editor::find::view::init",
+          "code_review::init",
+          "coding_entrypoints::project_buttons::init",
+          "command::windows::init",
+          "context_chips::display_menu::init",
+          "context_chips::node_version_popup::init",
+          "crash_reporting::init",
+          "crate::tui::init",
+          "crate::view_components::find::init",
+          "drive::index::init",
+          "drive::sharing::dialog::init",
+          "editor::init",
+          "env_vars::env_var_collection_block::init",
+          "env_vars::view::env_var_collection::init",
+          "experiments::init",
+          "input::init",
+          "launch_configs::init",
+          "menu::init",
+          "onboarding::init",
+          "pane_group::init",
+          "platform::init",
+          "profiling::init",
+          "prompt::editor_modal::init",
+          "reward_view::init",
+          "root_view::init",
+          "settings::init",
+          "settings_view::update_environment_form::init",
+          "tab_configs::new_worktree_modal::init",
+          "tab_configs::params_modal::init",
+          "terminal::init",
+          "terminal::view::init_environment::mode_selector::init",
+          "themes::theme_chooser::init",
+          "themes::theme_creator_modal::init",
+          "themes::theme_deletion_modal::init",
+          "tips::tip_view::init",
+          "tracing::init",
+          "undo_close::init",
+          "voltron::init",
+          "warp_logging::init",
+          "workflows::init",
+          "workspace::auto_handoff::init",
+          "workspace::init"
+        ],
+        "public_fields": [],
+        "service_calls": [
+          "AIExecutionProfilesModel::new",
+          "AIFactManager::new",
+          "AIRequestUsageModel::handle",
+          "AIRequestUsageModel::new",
+          "AISettings::handle",
+          "ActiveAgentViewsModel::new",
+          "AppExecutionMode::new",
+          "AppearanceManager::handle",
+          "Arc::new",
+          "AudibleBell::new",
+          "AuthManager::handle",
+          "AuthManager::new",
+          "AuthStateProvider::new",
+          "AutoupdateState::register",
+          "BlocklistAIHistoryModel::new",
+          "Box::new",
+          "CLIAgentSessionsModel::new",
+          "ChangelogModel::new",
+          "ChatGPTSubscriptionModel::handle",
+          "ChatGPTSubscriptionModel::new",
+          "CloudModel::new",
+          "CodebaseIndexManagerConfig::new",
+          "DirectoryWatcher::handle",
+          "DisplayCount::handle",
+          "GPUState::handle",
+          "GPUState::new",
+          "GeneralSettings::handle",
+          "GitHubAuthNotifier::new",
+          "GitRepoModels::new",
+          "GlobalResourceHandlesProvider::new",
+          "History::new",
+          "HomeDirectoryWatcher::new",
+          "IapManager::handle",
+          "IapManager::new",
+          "IapState::new",
+          "IgnoredSuggestionsModel::new",
+          "IntervalTimer::handle",
+          "IntervalTimer::new",
+          "KeybindingChangedNotifier::handle",
+          "KeybindingChangedNotifier::new",
+          "LanguageServerShutdownManager::new",
+          "Listener::new",
+          "LocalShellState::handle",
+          "ManagedIapMint::new",
+          "ManagedSecretManager::new",
+          "ManagedSecretsIapMinter::new",
+          "NetworkStatus::handle",
+          "NetworkStatus::new",
+          "NotebookManager::handle",
+          "NotebookManager::new",
+          "ObjectActions::new",
+          "OneTimeModalModel::handle",
+          "OpenedFilesModel::new",
+          "PersistedWorkspace::new",
+          "PersistenceWriter::handle",
+          "PersistenceWriter::new",
+          "ProjectContextModel::handle",
+          "ProjectManagementModel::new",
+          "RecordingController::new",
+          "RelaunchModel::new",
+          "RemoteServerManager::handle",
+          "RepoMetadataModel::new",
+          "RestoredAgentConversations::new",
+          "RunningSessionSummary::new",
+          "SelectionSettings::handle",
+          "ServerApiProvider::new",
+          "ServerVoiceTranscriber::new",
+          "SessionSettings::handle",
+          "SettingsPaneManager::handle",
+          "SettingsPaneManager::new",
+          "SyncQueue::new",
+          "SyncedInputState::new",
+          "SystemStats::handle",
+          "SystemStats::new",
+          "TabShortcutModifierState::new",
+          "TeamUpdateManager::new",
+          "TelemetryCollector::handle",
+          "TelemetryCollector::new",
+          "TemplatableMCPServerManager::new",
+          "ToastStack::handle",
+          "UndoCloseStack::handle",
+          "UpdateManager::new",
+          "UserProfiles::new",
+          "UserWorkspaces::handle",
+          "UserWorkspaces::new",
+          "Vec::new",
+          "VimRegisters::new",
+          "VoiceTranscriber::new",
+          "WorkflowAliases::handle",
+          "ai::api_keys::ApiKeyManager::handle",
+          "ai::api_keys::ApiKeyManager::new",
+          "ai::blocklist::agent_view::orchestration_pill_bar_model::OrchestrationPillBarModel::new",
+          "crash_recovery::CrashRecovery::handle",
+          "crash_recovery::CrashRecovery::new",
+          "http_server::HttpServer::new",
+          "lsp::LspManagerModel::handle",
+          "pricing::PricingInfoModel::new",
+          "search::command_palette::SelectedItems::new",
+          "settings::IapRoutingSettings::handle",
+          "settings::PublicPreferences::new",
+          "simple_logger::manager::LogManager::new",
+          "terminal::available_shells::register",
+          "terminal::local_tty::spawner::PtySpawner::handle",
+          "terminal::local_tty::spawner::PtySpawner::new",
+          "warpui::platform::AppBuilder::new",
+          "warpui_extras::secure_storage::register"
+        ]
+      }
+    },
+    "app/src/app_state.rs": {
+      "sha256": "0c1526bd46f18592769005ec579888edce2aa136911fd2ac742139b978f516b4",
+      "registrations": {
+        "modules": [
+          "tests"
+        ],
+        "init_calls": [],
+        "public_fields": [
+          "active_conversation_id",
+          "active_profile_id",
+          "active_tab_index",
+          "active_window_index",
+          "agent_management_filters",
+          "block_lists",
+          "bounds",
+          "children",
+          "collapsed",
+          "color",
+          "contents",
+          "conversation_ids_to_restore",
+          "custom_title",
+          "custom_vertical_tabs_title",
+          "cwd",
+          "default_directory_color",
+          "direction",
+          "filters",
+          "fullscreen_state",
+          "group_id",
+          "id",
+          "input_config",
+          "is_active",
+          "is_focused",
+          "is_maximized",
+          "is_read_only",
+          "left_panel",
+          "left_panel_displayed_tab",
+          "left_panel_open",
+          "left_panel_width",
+          "llm_model_override",
+          "mode",
+          "name",
+          "pane_group_id",
+          "path",
+          "pinned",
+          "quake_mode",
+          "right_panel",
+          "right_panel_width",
+          "root",
+          "running_mcp_servers",
+          "selected_color",
+          "shell_launch_data",
+          "tab_groups",
+          "tabs",
+          "task_id",
+          "team_uid",
+          "universal_search_width",
+          "uuid",
+          "vertical_tabs_panel_open",
+          "voltron_width",
+          "warp_ai_width",
+          "warp_drive_index_width",
+          "width",
+          "windows"
+        ],
+        "service_calls": [
+          "Vec::new"
+        ]
+      }
+    },
+    "app/src/settings/init.rs": {
+      "sha256": "4872b4b18a68309da43b9b54ed8bd23fe0fb79e56b3c3215072ceb36e09a771e",
+      "registrations": {
+        "modules": [
+          "tests"
+        ],
+        "init_calls": [],
+        "public_fields": [
+          "settings_file_error",
+          "should_restore_session",
+          "tips_data",
+          "user_default_shell_unsupported_banner_state"
+        ],
+        "service_calls": [
+          "AISettings::register_and_subscribe_to_events",
+          "AccessibilitySettings::register",
+          "AliasExpansionSettings::register",
+          "AltScreenReporting::register",
+          "AppEditorSettings::register",
+          "AppIconSettings::register",
+          "BlockListSettings::register",
+          "BlockVisibilitySettings::register",
+          "Box::new",
+          "ChangelogSettings::register",
+          "CloudAgentSettings::register",
+          "CloudPreferencesSettings::register",
+          "CodeSettings::register",
+          "CommandSearchSettings::register",
+          "DebugSettings::register",
+          "EmacsBindingsSettings::register",
+          "FontSettings::handle",
+          "FontSettings::register",
+          "GPUSettings::register",
+          "GeneralSettings::register",
+          "InputModeSettings::register",
+          "InputSettings::handle",
+          "InputSettings::register",
+          "KeysSettings::register",
+          "LigatureSettings::register",
+          "LocalControlSettings::register",
+          "NativePreferenceSettings::register",
+          "PaneSettings::register",
+          "SafeModeSettings::register",
+          "SameLinePromptBlockSettings::register",
+          "ScrollSettings::register",
+          "SelectionSettings::register",
+          "SemanticSelection::register",
+          "SessionSettings::handle",
+          "SessionSettings::register",
+          "SettingsInitializer::new",
+          "SettingsManager::handle",
+          "SharedObjectLimitBannerSettings::register",
+          "SharedSessionSettings::register",
+          "SshSettings::register",
+          "TabSettings::register",
+          "TerminalSettings::register",
+          "ThemeSettings::register",
+          "TipsCompleted::new",
+          "TuiAutoupdateSettings::register",
+          "TuiThemeSettings::register",
+          "TuiVoiceSettings::register",
+          "TuiZeroStateSettings::register",
+          "UndoCloseSettings::register",
+          "UserAppInstallDetectionSettings::register",
+          "VimBannerSettings::register",
+          "WarpConfig::handle",
+          "WarpDrivePrivacySettings::register",
+          "WarpDriveSettings::register",
+          "WarpifySettings::register",
+          "WindowSettings::register",
+          "WorkflowAliases::register",
+          "appearance::register",
+          "crate::user_config::WarpConfig::handle",
+          "crate::util::file::external_editor::EditorSettings::register",
+          "settings::PrivatePreferences::new",
+          "settings::PublicPreferences::new",
+          "settings::SettingsManager::handle",
+          "super::IapRoutingSettings::register",
+          "super::LinuxAppConfiguration::register",
+          "user_preferences::file_backed::FileBackedUserPreferences::new",
+          "user_preferences::registry_backed::RegistryBackedPreferences::new",
+          "user_preferences::toml_backed::TomlBackedUserPreferences::new",
+          "user_preferences::user_defaults::UserDefaultsPreferencesStorage::new"
+        ]
+      }
+    },
+    "app/src/root_view.rs": {
+      "sha256": "825ada707335c860156781b0b564d653412988fea86e37989ff63915d2613617",
+      "registrations": {
+        "modules": [
+          "tests"
+        ],
+        "init_calls": [],
+        "public_fields": [
+          "app_state",
+          "command",
+          "launch_config",
+          "model_event_sender",
+          "open_in_active_window",
+          "path",
+          "repos",
+          "server_api",
+          "shell_type",
+          "ui_location"
+        ],
+        "service_calls": [
+          "AIRequestUsageModel::handle",
+          "AgentOnboardingView::new",
+          "Arc::new",
+          "AuthManager::handle",
+          "AuthOverrideWarningModal::new",
+          "AuthView::new",
+          "AutoupdateState::handle",
+          "Box::new",
+          "ChildView::new",
+          "CloudPreferencesSyncer::handle",
+          "EditableBinding::new",
+          "EventHandler::new",
+          "ExportManager::handle",
+          "GlobalResourceHandlesProvider::handle",
+          "HashMap::new",
+          "IntervalTimer::handle",
+          "LLMPreferences::handle",
+          "LoginSlideView::new",
+          "Mutex::new",
+          "NeedsSsoLinkView::new",
+          "OneTimeModalModel::handle",
+          "PricingInfoModel::handle",
+          "RectF::new",
+          "RootView::new",
+          "Stack::new",
+          "TeamTesterStatus::handle",
+          "TeamUpdateManager::handle",
+          "ThemeSettings::handle",
+          "UserWorkspaces::handle",
+          "VoiceInput::handle",
+          "WarpThemeConfig::new",
+          "WindowBounds::new",
+          "WindowManager::handle",
+          "WindowSettings::handle",
+          "Workspace::new",
+          "crate::workspace::ToastStack::handle",
+          "voice_input::VoiceInput::handle",
+          "warpui_extras::user_preferences::user_defaults::UserDefaultsPreferencesStorage::new"
+        ]
+      }
+    }
+  },
+  "scope_limits": [
+    "Dependency seeds are declared normal, build, dev, target and workspace dependencies in the listed manifests. This is not a resolved Cargo dependency graph.",
+    "Source checks inspect named module declarations, selected initialization sites and persisted fields in listed files. They are not a Rust compiler, macro expander or whole-program analysis.",
+    "New or changed dependency declarations and new feature/module/init/public-field names require review. Other new code paths, renamed settings, arbitrary service factories and dependencies in unlisted crates can escape this scope.",
+    "Known forbidden optional or non-default features still fail because the requirement is removal from the product source, not runtime disabling.",
+    "Native builds, Windows/ConPTY behavior, terminal I/O, local session recovery, settings surface and host-originated network activity require separate verification.",
+    "Third-party programs launched inside a terminal may use the network and their own agent functionality. Audit applies to the embedded Warp product."
+  ]
+}

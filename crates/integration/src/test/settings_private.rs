@@ -87,7 +87,7 @@ pub fn test_private_public_settings_routing_with_flag_enabled() -> Builder {
                 }),
         )
         // Step 4: Set a second pair — public CodeAsDefaultEditor, private
-        // DismissedCodeToolbeltNewFeaturePopup.
+        // ShowMemoryStats.
         .with_step(
             TestStep::new("Set second pair of settings").with_action(|app, _, _| {
                 CodeSettings::handle(app).update(app, |settings, ctx| {
@@ -95,10 +95,12 @@ pub fn test_private_public_settings_routing_with_flag_enabled() -> Builder {
                         .code_as_default_editor
                         .set_value(true, ctx)
                         .expect("should set code editor");
+                });
+                DebugSettings::handle(app).update(app, |settings, ctx| {
                     settings
-                        .dismissed_code_toolbelt_new_feature_popup
-                        .set_value(true, ctx)
-                        .expect("should set dismissed popup");
+                        .show_memory_stats
+                        .set_value(false, ctx)
+                        .expect("should disable memory stats");
                 });
             }),
         )
@@ -114,21 +116,21 @@ pub fn test_private_public_settings_routing_with_flag_enabled() -> Builder {
                     )
                 })
                 .add_named_assertion(
-                    "DismissedCodeToolbeltNewFeaturePopup not in TOML",
+                    "ShowMemoryStats not in TOML",
                     |_, _| {
                         let toml = read_toml_file();
                         async_assert!(
-                            !toml.contains("DismissedCodeToolbeltNewFeaturePopup")
-                                && !toml.contains("dismissed_code_toolbelt_new_feature_popup"),
-                            "TOML should not contain the private popup setting"
+                            !toml.contains("ShowMemoryStats")
+                                && !toml.contains("show_memory_stats"),
+                            "TOML should not contain the private memory stats setting"
                         )
                     },
                 )
-                .add_named_assertion("DismissedCodeToolbeltNewFeaturePopup in JSON", |_, _| {
+                .add_named_assertion("ShowMemoryStats in JSON", |_, _| {
                     let json = read_json_prefs_file();
                     async_assert!(
-                        json.contains("DismissedCodeToolbeltNewFeaturePopup"),
-                        "JSON prefs should contain the private popup setting"
+                        json.contains("ShowMemoryStats"),
+                        "JSON prefs should contain the private memory stats setting"
                     )
                 }),
         )
@@ -145,10 +147,7 @@ pub fn test_private_settings_preloaded_and_not_leaked_to_toml() -> Builder {
     // backend for integration tests).
     let user_defaults = HashMap::from([
         ("IsShellDebugModeEnabled".to_owned(), "true".to_owned()),
-        (
-            "DismissedCodeToolbeltNewFeaturePopup".to_owned(),
-            "true".to_owned(),
-        ),
+        ("ShowMemoryStats".to_owned(), "false".to_owned()),
     ]);
 
     new_builder()
@@ -165,12 +164,10 @@ pub fn test_private_settings_preloaded_and_not_leaked_to_toml() -> Builder {
                         async_assert_eq!(*val, true, "preloaded debug mode should be true")
                     })
                 })
-                .add_named_assertion("DismissedCodeToolbeltNewFeaturePopup is true", |app, _| {
+                .add_named_assertion("ShowMemoryStats is false", |app, _| {
                     app.read(|ctx| {
-                        let val = CodeSettings::as_ref(ctx)
-                            .dismissed_code_toolbelt_new_feature_popup
-                            .value();
-                        async_assert_eq!(*val, true, "preloaded popup dismissed should be true")
+                        let val = DebugSettings::as_ref(ctx).show_memory_stats.value();
+                        async_assert_eq!(*val, false, "preloaded memory stats should be disabled")
                     })
                 }),
         )
@@ -202,8 +199,8 @@ pub fn test_private_settings_preloaded_and_not_leaked_to_toml() -> Builder {
                     async_assert!(
                         !toml.contains("IsShellDebugModeEnabled")
                             && !toml.contains("is_shell_debug_mode_enabled")
-                            && !toml.contains("DismissedCodeToolbeltNewFeaturePopup")
-                            && !toml.contains("dismissed_code_toolbelt_new_feature_popup"),
+                            && !toml.contains("ShowMemoryStats")
+                            && !toml.contains("show_memory_stats"),
                         "TOML should not contain any private setting keys"
                     )
                 }),
@@ -216,7 +213,7 @@ pub fn test_private_settings_preloaded_and_not_leaked_to_toml() -> Builder {
                     let json = read_json_prefs_file();
                     async_assert!(
                         json.contains("IsShellDebugModeEnabled")
-                            && json.contains("DismissedCodeToolbeltNewFeaturePopup"),
+                            && json.contains("ShowMemoryStats"),
                         "JSON prefs should contain both private settings"
                     )
                 },

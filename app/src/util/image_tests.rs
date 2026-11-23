@@ -135,3 +135,27 @@ fn test_resize_image_respects_max_dimension() {
         MAX_IMAGE_DIMENSION
     );
 }
+
+#[test]
+fn cli_image_read_bounds_actual_bytes_after_metadata_can_become_stale() {
+    use futures::executor::block_on;
+    use futures::io::Cursor;
+
+    // A metadata result of four could be followed by a larger/replaced file.
+    // Only five bytes may be consumed: the configured bound and one sentinel.
+    const LIMIT: usize = 4;
+    let mut replaced_file = Cursor::new(b"123456789".to_vec());
+    let bytes = block_on(read_cli_image_bytes(&mut replaced_file, LIMIT)).unwrap();
+    assert_eq!(bytes, b"12345");
+    assert_eq!(replaced_file.position(), 5);
+    assert!(bytes.len() > LIMIT, "both production callers must reject the oversized result");
+
+    let mut exactly_at_limit = Cursor::new(b"1234".to_vec());
+    let bytes = block_on(read_cli_image_bytes(&mut exactly_at_limit, LIMIT)).unwrap();
+    assert_eq!(bytes, b"1234");
+    assert!(bytes.len() <= LIMIT);
+    assert_eq!(exactly_at_limit.position(), 4);
+
+    let bytes = block_on(read_cli_image_bytes(Cursor::new(Vec::new()), LIMIT)).unwrap();
+    assert!(bytes.is_empty());
+}
