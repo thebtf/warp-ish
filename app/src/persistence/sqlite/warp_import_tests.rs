@@ -1,6 +1,10 @@
 use std::fs;
 
+use chrono::TimeZone as _;
+
 use super::*;
+use crate::app_state::PaneUuid;
+use crate::terminal::model::block::SerializedBlockListItem;
 
 fn fixture() -> tempfile::TempDir {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -174,6 +178,43 @@ fn imports_ordered_local_layout_and_inert_history_without_platform_data() {
     history_row.command = "remote command".into();
     history_row.hostname = Some(format!("{hostname}-remote"));
     insert(&history_row);
+
+    let first = chrono::Local.from_utc_datetime(&timestamp);
+    let second = first + chrono::TimeDelta::seconds(1);
+    let mut block = SerializedBlock::new_for_test(
+        b"Write-Output red".to_vec(),
+        b"\x1b[31mred\x1b[0m\r\n".to_vec(),
+    );
+    block.id = "286-2".to_owned().into();
+    block.start_ts = None;
+    block.completed_ts = Some(second);
+    block.prompt_snapshot = Some("{}".into());
+    block.agent_view_visibility = Some(SerializedAgentViewVisibility::Terminal {
+        pending_conversation_ids: HashSet::new(),
+        conversation_ids: HashSet::new(),
+    });
+    save_block(&mut connection, vec![1; 16], &block, true).unwrap();
+
+    block.id = "286-1".to_owned().into();
+    block.stylized_output = b"before red\r\n".to_vec();
+    block.start_ts = Some(first);
+    block.completed_ts = Some(first);
+    save_block(&mut connection, vec![1; 16], &block, true).unwrap();
+    block.id = "287-1".to_owned().into();
+    save_block(&mut connection, vec![3; 16], &block, true).unwrap();
+    block.id = "288-1".to_owned().into();
+    save_block(&mut connection, vec![2; 16], &block, true).unwrap();
+    block.id = "289-1".to_owned().into();
+    save_block(&mut connection, vec![4; 16], &block, true).unwrap();
+    block.id = "286-3".to_owned().into();
+    save_block(&mut connection, vec![1; 16], &block, false).unwrap();
+    block.id = "286-4".to_owned().into();
+    block.ai_metadata = Some("{}".into());
+    save_block(&mut connection, vec![1; 16], &block, true).unwrap();
+    block.id = "286-5".to_owned().into();
+    block.ai_metadata = None;
+    block.completed_ts = None;
+    save_block(&mut connection, vec![1; 16], &block, true).unwrap();
     // Both connections in this test share SQLite's in-process WAL index. Set an up-to-date
     // read mark before comparing the bytes, so a reader need not allocate another mark.
     assert_eq!(
@@ -203,13 +244,14 @@ fn imports_ordered_local_layout_and_inert_history_without_platform_data() {
             tabs: 3,
             panes: 4,
             history_entries: 2,
+            blocks: 3,
             skipped_tabs: 1,
             skipped_panes: 2,
             ..WarpLayoutImportSummary::default()
         }
     );
     let mut imported = setup_database(&destination).unwrap();
-    let (state, _) = read_terminal_layout(&mut imported).unwrap();
+    let (state, _, _) = read_terminal_layout(&mut imported).unwrap();
     assert_eq!(state.active_window_index, Some(1));
     let main = &state.windows[0];
     assert_eq!(main.bounds, donor_state.windows[0].bounds);
@@ -232,10 +274,28 @@ fn imports_ordered_local_layout_and_inert_history_without_platform_data() {
             (PaneFlex(3.), terminal(3, r"C:\Second Project", false)),
         ]
     );
-    // The normal startup loader returns command text only to History. Restore receives
-    // the layout state below, with no donor blocks or shell launch commands to replay.
     let persisted = super::super::read_sqlite_data(&mut imported).unwrap();
-    assert!(persisted.app_state.unwrap().block_lists.is_empty());
+    let restored = persisted.app_state.unwrap();
+    let restored_blocks = |uuid| restored.block_lists.get(&PaneUuid(vec![uuid; 16])).unwrap();
+    let [
+        SerializedBlockListItem::Command { block: old },
+        SerializedBlockListItem::Command { block: recent },
+    ] = restored_blocks(1).as_slice()
+    else {
+        panic!("Expected two local completed blocks in the first pane");
+    };
+    assert_eq!(old.id.as_str(), "286-1");
+    assert_eq!(old.stylized_output, b"before red\r\n");
+    assert_eq!(recent.id.as_str(), "286-2");
+    assert_eq!(recent.stylized_command, b"Write-Output red");
+    assert_eq!(recent.stylized_output, b"\x1b[31mred\x1b[0m\r\n");
+    assert_eq!(recent.start_ts, Some(second));
+    assert_eq!(recent.completed_ts, Some(second));
+    assert!(recent.prompt_snapshot.is_none() && recent.agent_view_visibility.is_none());
+    assert_eq!(restored_blocks(3).len(), 1);
+    for uuid in [2, 4] {
+        assert!(!restored.block_lists.contains_key(&PaneUuid(vec![uuid; 16])));
+    }
     let [newest, oldest] = persisted.command_history.as_slice() else {
         panic!("Expected only the two local command history rows");
     };

@@ -26,10 +26,8 @@ pub(crate) struct TerminalViewSurfaceConfig {
 /// Resolves the block list used by the GUI `TerminalView` surface.
 pub(crate) fn terminal_view_restored_blocks(
     restored_blocks: Option<&Vec<SerializedBlockListItem>>,
-) -> Option<Vec<SerializedBlockListItem>> {
-    restored_blocks
-        .filter(|blocks| !blocks.is_empty())
-        .cloned()
+) -> Option<&Vec<SerializedBlockListItem>> {
+    restored_blocks.filter(|blocks| !blocks.is_empty())
 }
 
 /// Creates the GUI terminal surface and its manager-owned post-wiring closure.

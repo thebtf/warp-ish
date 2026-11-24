@@ -3464,15 +3464,13 @@ impl PaneGroup {
                 let terminal_view = terminal_init.view;
             } else if #[cfg(feature = "local_tty")] {
                 let all_restored_blocks = terminal_view_restored_blocks(restored_blocks);
-                let has_restored_command_blocks = all_restored_blocks
-                    .as_ref()
-                    .is_some_and(|blocks| !blocks.is_empty());
+                let has_restored_command_blocks = all_restored_blocks.is_some();
                 let model_event_sender_for_surface = model_event_sender.clone();
                 let window_id = ctx.window_id();
                 let terminal_init = LocalTtyTerminalManager::<TerminalView>::create_model(
                     startup_directory,
                     env_vars,
-                    all_restored_blocks.as_ref(),
+                    all_restored_blocks,
                     user_default_shell_unsupported_banner_model_handle,
                     initial_size,
                     model_event_sender,
