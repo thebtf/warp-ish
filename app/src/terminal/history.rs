@@ -149,7 +149,11 @@ pub struct History {
     /// For each ShellHost, the de-duped commands from the sqlite "commands" table is stored here,
     /// keyed by command string. Each time a history file is read, it gets "joined" to the
     /// commands in here to add the execution metadata from the most recent run.
-    persisted_commands_summary: HashMap<ShellHost, HashMap<String, HistoryEntry>>,
+    persisted_commands_summary: HashMap<ShellHost, HashMap<String, Arc<HistoryEntry>>>,
+
+    /// Same-shell commands from a Warp import, newest first. They may be absent from PSReadLine's
+    /// history file, so the file is supplemented without modifying it.
+    imported_commands: HashMap<ShellHost, Vec<Arc<HistoryEntry>>>,
 
     /// Entries from the history file for the host.  Immutable once loaded and
     /// shared between sessions.
@@ -382,26 +386,51 @@ impl SingletonEntity for History {}
 
 impl History {
     pub fn new(persisted_commands: Vec<PersistedCommand>) -> Self {
-        log::debug!("Creating new History model with persisted commands {persisted_commands:?}");
-        let mut persisted_commands_summary =
-            HashMap::<ShellHost, HashMap<String, HistoryEntry>>::new();
+        #[cfg(windows)]
+        let include_imported_commands =
+            warp_core::channel::ChannelState::windows_warp_ish_data_profile()
+                .as_deref()
+                .is_some_and(warp_core::paths::valid_windows_import_profile);
+        #[cfg(not(windows))]
+        let include_imported_commands = false;
+        Self::from_persisted_commands(persisted_commands, include_imported_commands)
+    }
+
+    fn from_persisted_commands(
+        persisted_commands: Vec<PersistedCommand>,
+        include_imported_commands: bool,
+    ) -> Self {
+        log::debug!(
+            "Creating History with {} persisted commands",
+            persisted_commands.len()
+        );
+        let mut history = Self::default();
 
         for command in persisted_commands {
-            if let Some(shell_host) = command.shell_host.as_ref() {
-                let summaries = persisted_commands_summary
-                    .entry(shell_host.clone())
-                    .or_default();
-                let hist_entry: HistoryEntry = command.into();
-                summaries
-                    .entry(hist_entry.command.clone())
-                    .or_insert(hist_entry);
+            if let Some(shell_host) = command.shell_host.clone() {
+                let entry = Arc::new(HistoryEntry::from(command));
+                // The importer stores local PowerShell commands without a live session ID.
+                if include_imported_commands
+                    && shell_host.shell_type == ShellType::PowerShell
+                    && entry.session_id.is_none()
+                    && !entry.is_agent_executed
+                {
+                    history
+                        .imported_commands
+                        .entry(shell_host.clone())
+                        .or_default()
+                        .push(Arc::clone(&entry));
+                }
+                history
+                    .persisted_commands_summary
+                    .entry(shell_host)
+                    .or_default()
+                    .entry(entry.command.clone())
+                    .or_insert(entry);
             }
         }
 
-        Self {
-            persisted_commands_summary,
-            ..Default::default()
-        }
+        history
     }
 
     pub fn all_live_session_ids(&self) -> HashSet<SessionId> {
@@ -558,22 +587,29 @@ impl History {
         ctx: &mut ModelContext<Self>,
     ) {
         let deduped_history_file_commands = dedupe_from_last(history_file_commands);
+        let mut history = Vec::new();
+        if let Some(imported) = self.imported_commands.remove(&host) {
+            let mut seen: HashSet<&str> = deduped_history_file_commands
+                .iter()
+                .map(String::as_str)
+                .collect();
+            for entry in &imported {
+                if seen.insert(entry.command.as_str()) {
+                    history.push(Arc::clone(entry));
+                }
+            }
+            history.reverse();
+        }
+        let summaries = self.persisted_commands_summary.get(&host);
+        history.extend(deduped_history_file_commands.into_iter().map(|command| {
+            summaries
+                .and_then(|entries| entries.get(&command))
+                .cloned()
+                .unwrap_or_else(|| Arc::new(HistoryEntry::command_only(command)))
+        }));
 
-        let mut start_index = deduped_history_file_commands.len();
-        self.history_file_commands.insert(
-            host.clone(),
-            deduped_history_file_commands
-                .into_iter()
-                .map(|command| {
-                    self.persisted_commands_summary
-                        .get(&host)
-                        .and_then(|summaries| summaries.get(&command))
-                        .cloned()
-                        .unwrap_or_else(|| HistoryEntry::command_only(command))
-                })
-                .map(Arc::new)
-                .collect(),
-        );
+        let mut start_index = history.len();
+        self.history_file_commands.insert(host.clone(), history);
 
         if let Some(session_commands_to_append) = session_commands_to_append {
             start_index += session_commands_to_append.len();

@@ -7,7 +7,8 @@ use std::path::{Component, Path, PathBuf, Prefix};
 use anyhow::{Context, Result, ensure};
 use diesel::{
     Connection, ExpressionMethods, QueryDsl, RunQueryDsl, SelectableHelper,
-    connection::SimpleConnection, sqlite::SqliteConnection,
+    connection::{DefaultLoadingMode, SimpleConnection},
+    sqlite::SqliteConnection,
 };
 use num_traits::FromPrimitive;
 use pathfinder_geometry::{rect::RectF, vector::Vector2F};
@@ -23,8 +24,10 @@ use crate::app_state::{
     AppState, BranchSnapshot, LeafContents, LeafSnapshot, PaneFlex, PaneNodeSnapshot,
     SplitDirection, TabGroupSnapshot, TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
 };
+use crate::persistence::block_list::{MAX_TERMINAL_BLOCKS_TO_PERSIST_PER_SESSION, save_block};
 use crate::tab::SelectedTabColor;
 use crate::terminal::ShellLaunchData;
+use crate::terminal::model::block::{SerializedAgentViewVisibility, SerializedBlock};
 use crate::terminal::model::session::get_local_hostname;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::workspace::tab_group::TabGroupId;
@@ -36,6 +39,7 @@ pub(crate) struct WarpLayoutImportSummary {
     pub tabs: usize,
     pub panes: usize,
     pub history_entries: usize,
+    pub blocks: usize,
     pub skipped_windows: usize,
     pub skipped_tabs: usize,
     pub skipped_panes: usize,
@@ -73,35 +77,6 @@ struct HistoryCommand {
     username: Option<String>,
 }
 
-/// Imports saved terminal layout and plain local PowerShell history into a new staging database.
-pub(crate) fn import_terminal_layout(
-    donor_db: &Path,
-    destination_db: &Path,
-) -> Result<WarpLayoutImportSummary> {
-    let (state, mut summary, history) = read_donor(donor_db, destination_db)?;
-
-    OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(destination_db)
-        .context("Creating the isolated warp-ish workspace database")?;
-    let mut destination = setup_database(destination_db)?;
-    destination.transaction::<_, anyhow::Error, _>(|conn| {
-        save_app_state(conn, &state).context("Saving the imported terminal layout")?;
-        // Write in original order so the normal history reader still gives the newest
-        // occurrences priority. These rows are read only by History, not layout restoration.
-        for command in history.iter().rev() {
-            diesel::insert_into(schema::commands::table)
-                .values(command)
-                .execute(conn)
-                .context("Saving the imported command history")?;
-        }
-        Ok(())
-    })?;
-    summary.history_entries = history.len();
-    Ok(summary)
-}
-
 const FILE_SHARE_READ: u32 = 0x1;
 const FILE_SHARE_WRITE: u32 = 0x2;
 const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
@@ -137,10 +112,11 @@ fn open_sidecar(database: &Path, suffix: &str, share_mode: u32) -> io::Result<Op
     }
 }
 
-fn read_donor(
+/// Imports saved terminal layout and local terminal history into a new staging database.
+pub(crate) fn import_terminal_layout(
     donor_db: &Path,
     destination_db: &Path,
-) -> Result<(AppState, WarpLayoutImportSummary, Vec<model::NewCommand>)> {
+) -> Result<WarpLayoutImportSummary> {
     let mut donor_url = Url::from_file_path(donor_db)
         .map_err(|_| anyhow::anyhow!("The Warp workspace database path must be absolute"))?;
     // Keep the database and both existing WAL sidecars from being replaced or deleted while
@@ -155,7 +131,7 @@ fn read_donor(
             .extend_pairs([("mode", "ro"), ("readonly_shm", "1")]);
         let mut donor = SqliteConnection::establish(donor_url.as_str())
             .context("Opening the live Warp database read-only")?;
-        return read_workspace(&mut donor);
+        return copy_workspace(&mut donor, destination_db);
     }
     drop(main);
 
@@ -192,18 +168,108 @@ fn read_donor(
             .context("Reading the Warp snapshot path")?,
     )
     .context("Opening the isolated Warp snapshot")?;
-    read_workspace(&mut donor)
+    copy_workspace(&mut donor, destination_db)
 }
 
-fn read_workspace(
+fn copy_workspace(
     donor: &mut SqliteConnection,
-) -> Result<(AppState, WarpLayoutImportSummary, Vec<model::NewCommand>)> {
+    destination_db: &Path,
+) -> Result<WarpLayoutImportSummary> {
     donor.batch_execute("PRAGMA query_only=ON; PRAGMA busy_timeout=1000;")?;
-    donor.transaction(|conn| {
-        let (state, summary) =
-            read_terminal_layout(conn).context("Reading the saved Warp terminal layout")?;
-        let history = read_local_history(conn).context("Reading local Warp command history")?;
-        Ok((state, summary, history))
+    donor.transaction(|donor| {
+        let (state, mut summary, pane_uuids) =
+            read_terminal_layout(donor).context("Reading the saved Warp terminal layout")?;
+        let history = read_local_history(donor).context("Reading local Warp command history")?;
+
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(destination_db)
+            .context("Creating the isolated warp-ish workspace database")?;
+        let mut destination = setup_database(destination_db)?;
+        destination.transaction::<_, anyhow::Error, _>(|destination| {
+            save_app_state(destination, &state).context("Saving the imported terminal layout")?;
+            // The normal history loader gives the newest row priority for duplicate commands.
+            for command in history.iter().rev() {
+                diesel::insert_into(schema::commands::table)
+                    .values(command)
+                    .execute(destination)
+                    .context("Saving the imported command history")?;
+            }
+            summary.blocks = copy_local_blocks(donor, destination, pane_uuids)
+                .context("Copying the saved Warp terminal blocks")?;
+            Ok(())
+        })?;
+        summary.history_entries = history.len();
+        Ok(summary)
+    })
+}
+
+fn copy_local_blocks(
+    donor: &mut SqliteConnection,
+    destination: &mut SqliteConnection,
+    pane_uuids: HashSet<Vec<u8>>,
+) -> Result<usize> {
+    use schema::blocks::dsl::*;
+
+    let mut count = 0;
+    for pane_uuid in pane_uuids {
+        // Collect only the metadata needed to select recent blocks. A single output BLOB can
+        // be large, and the cursor must be closed before fetching an individual payload.
+        let mut selected = Vec::new();
+        let mut seen = HashSet::new();
+        let candidates = blocks
+            .filter(pane_leaf_uuid.eq(&pane_uuid))
+            .filter(is_local.eq(true))
+            .filter(did_execute.eq(true))
+            .filter(is_background.eq(false))
+            .filter(completed_ts.is_not_null())
+            .filter(ai_metadata.is_null())
+            .order((
+                diesel::dsl::sql::<diesel::sql_types::Timestamp>("COALESCE(start_ts, completed_ts)")
+                    .desc(),
+                id.desc(),
+            ))
+            .select((id, block_id, agent_view_visibility))
+            .load_iter::<(Option<i32>, String, Option<String>), DefaultLoadingMode>(donor)?;
+        for candidate in candidates {
+            let (row_id, block_key, visibility) = candidate?;
+            if let Some(row_id) = row_id
+                && !block_key.is_empty()
+                && !block_key.contains('\0')
+                && is_terminal_block(visibility.as_deref())
+                && seen.insert(block_key)
+            {
+                selected.push(row_id);
+                if selected.len() == MAX_TERMINAL_BLOCKS_TO_PERSIST_PER_SESSION as usize {
+                    break;
+                }
+            }
+        }
+        for row_id in selected.into_iter().rev() {
+            let row = blocks
+                .find(row_id)
+                .select(model::Block::as_select())
+                .first::<model::Block>(donor)?;
+            let mut block = SerializedBlock::from(row);
+            // Some older completed rows lack a start time. The restore model requires both.
+            block.start_ts = block.start_ts.or(block.completed_ts);
+            block.pwd = block.pwd.filter(|path| is_local_absolute(Path::new(path)));
+            block.prompt_snapshot = None;
+            block.agent_view_visibility = None;
+            save_block(destination, pane_uuid.clone(), &block, true)?;
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+fn is_terminal_block(visibility: Option<&str>) -> bool {
+    visibility.is_none_or(|json| {
+        matches!(
+            serde_json::from_str::<SerializedAgentViewVisibility>(json),
+            Ok(SerializedAgentViewVisibility::Terminal { .. })
+        )
     })
 }
 
@@ -252,7 +318,7 @@ fn read_local_history(conn: &mut SqliteConnection) -> Result<Vec<model::NewComma
 
 fn read_terminal_layout(
     conn: &mut SqliteConnection,
-) -> Result<(AppState, WarpLayoutImportSummary)> {
+) -> Result<(AppState, WarpLayoutImportSummary, HashSet<Vec<u8>>)> {
     // The grouping and pinning migrations establish the layout fields read below. Later
     // unrelated migrations and extra columns can coexist with the same topology schema.
     let version: LayoutVersion = diesel::sql_query(
@@ -398,7 +464,7 @@ fn read_terminal_layout(
     );
     state.active_window_index = Some(state.active_window_index.unwrap_or(0));
     summary.windows = state.windows.len();
-    Ok((state, summary))
+    Ok((state, summary, uuids))
 }
 
 fn read_pane(

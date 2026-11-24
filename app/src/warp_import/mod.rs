@@ -191,6 +191,7 @@ pub(super) fn run() -> Result<String> {
         "tabs": layout.tabs,
         "panes": layout.panes,
         "history_entries": layout.history_entries,
+        "blocks": layout.blocks,
         "skipped_windows": layout.skipped_windows,
         "skipped_tabs": layout.skipped_tabs,
         "skipped_panes": layout.skipped_panes,
@@ -227,11 +228,12 @@ pub(super) fn run() -> Result<String> {
     }
 
     Ok(format!(
-        "Imported {} windows, {} tabs, {} terminal panes and {} history entries. Skipped {} panes.",
+        "Imported {} windows, {} tabs, {} terminal panes, {} history entries and {} terminal blocks. Skipped {} panes.",
         layout.windows,
         layout.tabs,
         layout.panes,
         layout.history_entries,
+        layout.blocks,
         layout.skipped_panes
     ))
 }
