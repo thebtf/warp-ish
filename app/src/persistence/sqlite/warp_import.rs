@@ -248,7 +248,7 @@ fn copy_local_blocks(
         }
         for row_id in selected.into_iter().rev() {
             let row = blocks
-                .find(row_id)
+                .filter(id.eq(row_id))
                 .select(model::Block::as_select())
                 .first::<model::Block>(donor)?;
             let mut block = SerializedBlock::from(row);
