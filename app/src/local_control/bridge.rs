@@ -7,7 +7,7 @@ use ::local_control::auth::CredentialGrant;
 use ::local_control::{
     Action, ActionKind, ControlError, ErrorCode, InstanceId, RequestEnvelope, ResponseEnvelope,
 };
-use warpui::{Entity, ModelContext, SingletonEntity};
+use warpui::{AppContext, Entity, ModelContext, SingletonEntity};
 
 use crate::local_control::handlers::{
     app_state, close, metadata, metadata_config, settings_surfaces,
@@ -35,6 +35,96 @@ impl LocalControlBridge {
 
     pub(super) fn set_instance_id(&mut self, instance_id: InstanceId) {
         self.instance_id = Some(instance_id);
+    }
+
+    #[cfg(windows)]
+    pub(super) fn clear_instance_id(&mut self) {
+        self.instance_id = None;
+    }
+
+    #[cfg(windows)]
+    pub(super) fn handle_mcp(
+        &mut self,
+        request: warp_ish_mcp_transport::Request,
+        expected_instance: &InstanceId,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<serde_json::Value, ControlError> {
+        use crate::local_control::handlers::mcp;
+        if self.instance_id.as_ref() != Some(expected_instance)
+            || !crate::settings::LocalControlSettings::as_ref(ctx).is_enabled()
+        {
+            return Err(ControlError::new(
+                ErrorCode::LocalControlDisabled,
+                "Local MCP control is disabled or the connection is stale",
+            ));
+        }
+        let mut arguments = request.arguments;
+        let target_field = match request.tool.as_str() {
+            "create_tab" => Some("window_id"),
+            "close_tab" => Some("tab_id"),
+            "split_pane" | "start_peer" | "send_key" | "close_pane" => Some("pane_id"),
+            _ => None,
+        };
+        if let Some(target) = target_field.and_then(|field| arguments.get_mut(field))
+            && let Some(id) = target.as_str()
+        {
+            let raw = id.split_once('/').and_then(|(instance, raw)| {
+                (instance == expected_instance.0 && !raw.is_empty()).then_some(raw)
+            });
+            *target = serde_json::Value::String(
+                raw.ok_or_else(|| {
+                    ControlError::new(
+                        ErrorCode::StaleTarget,
+                        "Target ID belongs to a different or expired instance",
+                    )
+                })?
+                .to_owned(),
+            );
+        }
+        let params = serde_json::Value::Object(arguments);
+        let mut result = match request.tool.as_str() {
+            "where_am_i" if params.as_object().is_some_and(serde_json::Map::is_empty) => {
+                let terminal_uuid = request.terminal_uuid.as_deref().ok_or_else(|| {
+                    ControlError::new(ErrorCode::MissingTarget, "Start the MCP adapter from a warp-ish terminal pane to resolve its location")
+                })?;
+                self.mcp_where_am_i(terminal_uuid, request.block_id.as_deref(), ctx)
+            }
+            "list_surfaces" if params.as_object().is_some_and(serde_json::Map::is_empty) => {
+                mcp::list_layout(ctx)
+            }
+            "where_am_i" | "list_surfaces" => Err(ControlError::new(
+                ErrorCode::InvalidParams,
+                "This tool takes no arguments",
+            )),
+            "create_tab" => mcp::create_tab(&self.instance_id, &params, ctx),
+            "split_pane" => mcp::split(&self.instance_id, &params, ctx),
+            "start_peer" => mcp::start_peer(&params, ctx),
+            "send_key" => mcp::send_key(&params, ctx),
+            "close_pane" => mcp::close_pane(&params, ctx),
+            "close_tab" => mcp::close_tab(&self.instance_id, &params, ctx),
+            _ => Err(ControlError::new(
+                ErrorCode::UnsupportedAction,
+                "Unknown MCP tool",
+            )),
+        }?;
+        qualify_mcp_ids(&mut result, expected_instance);
+        Ok(result)
+    }
+
+    /// Resolve a pane for an already-authorized MCP request on the GUI thread.
+    pub(crate) fn mcp_where_am_i(
+        &self,
+        terminal_uuid: &str,
+        block_id: Option<&str>,
+        ctx: &AppContext,
+    ) -> Result<serde_json::Value, ControlError> {
+        let instance_id = self.instance_id.as_ref().ok_or_else(|| {
+            ControlError::new(
+                ErrorCode::BridgeUnavailable,
+                "local-control bridge has no active instance identity",
+            )
+        })?;
+        metadata::where_am_i(instance_id, terminal_uuid, block_id, ctx)
     }
 
     pub(super) fn handle_request(
@@ -186,6 +276,32 @@ impl LocalControlBridge {
             Ok(data) => ResponseEnvelope::ok(request.request_id, data),
             Err(error) => ResponseEnvelope::error(request.request_id, error),
         }
+    }
+}
+
+#[cfg(windows)]
+fn qualify_mcp_ids(value: &mut serde_json::Value, instance: &InstanceId) {
+    use serde_json::Value;
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object.iter_mut() {
+                if matches!(
+                    key.as_str(),
+                    "id" | "window_id" | "tab_group_id" | "tab_id" | "pane_id"
+                ) && let Some(id) = value.as_str()
+                {
+                    *value = Value::String(format!("{}/{id}", instance.0));
+                } else {
+                    qualify_mcp_ids(value, instance);
+                }
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                qualify_mcp_ids(value, instance);
+            }
+        }
+        _ => {}
     }
 }
 

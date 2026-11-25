@@ -3228,6 +3228,20 @@ impl Workspace {
         self.tabs.iter().map(|s| &s.pane_group)
     }
 
+    pub(crate) fn terminal_locations_by_uuid<'a>(
+        &'a self,
+        uuid: &'a [u8],
+        app: &'a AppContext,
+    ) -> impl Iterator<Item = (&'a ViewHandle<PaneGroup>, Option<TabGroupId>, PaneId)> + 'a {
+        self.tabs.iter().filter_map(move |tab| {
+            let pane_id = tab
+                .pane_group
+                .as_ref(app)
+                .find_terminal_pane_by_session_uuid(uuid)?;
+            Some((&tab.pane_group, tab.group_id, pane_id))
+        })
+    }
+
     /// Get the tab color for a given tab index.
     pub fn get_tab_color(&self, index: usize) -> Option<AnsiColorIdentifier> {
         self.tabs.get(index).and_then(|tab| tab.color())

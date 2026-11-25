@@ -1028,7 +1028,8 @@ impl SettingsView {
             me.handle_privacy_page_event(event, ctx);
         });
 
-        let scripting_page_handle = if FeatureFlag::WarpControlCli.is_enabled() {
+        let scripting_page_handle = if crate::settings::LocalControlSettings::scripting_available()
+        {
             Some(ctx.add_typed_action_view(ScriptingSettingsPageView::new))
         } else {
             None
@@ -1089,7 +1090,7 @@ impl SettingsView {
             SettingsNavItem::Page(SettingsSection::Warpify),
         ];
 
-        if FeatureFlag::WarpControlCli.is_enabled() {
+        if crate::settings::LocalControlSettings::scripting_available() {
             nav_items.push(SettingsNavItem::Page(SettingsSection::Scripting));
         }
         nav_items.extend([

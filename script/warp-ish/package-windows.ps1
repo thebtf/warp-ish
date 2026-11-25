@@ -186,6 +186,7 @@ $log = Join-Path $run 'build.log'
 $statePath = Join-Path $run 'state.json'
 $state = [ordered]@{ status = 'building'; source_sha = $sourceSha; version = $Version; stage = $stage; target = $target }
 $envNames = @('CARGO_FULL_PROFILE', 'CARGO_BIN_NAME', 'WARP_APP_NAME', 'GIT_RELEASE_TAG',
+    'WARP_ISH_RELEASE_VERSION',
     'CARGO_INCREMENTAL', 'CARGO_TARGET_DIR', 'RUSTUP_AUTO_INSTALL', 'SKIP_SETTINGS_SCHEMA',
     'SETTINGS_SCHEMA_SOURCE', 'SETTINGS_SCHEMA_EXECUTABLE', 'RUSTUP_TOOLCHAIN')
 $savedEnv = @{}
@@ -193,6 +194,8 @@ foreach ($name in $envNames) { $savedEnv[$name] = [Environment]::GetEnvironmentV
 $buildArguments = @("+$toolchain", 'build', '-p', 'warp', '--bin', 'warp-oss', '--profile', 'rlto',
     '--features', 'release_bundle,gui', '--target', 'x86_64-pc-windows-msvc',
     '--target-dir', $target, '--locked', '-j', '2')
+$adapterBuildArguments = @("+$toolchain", 'build', '-p', 'warp-ish-mcp-adapter', '--bin', 'warp-ish-mcp', '--profile', 'rlto',
+    '--target', 'x86_64-pc-windows-msvc', '--target-dir', $target, '--locked', '-j', '2')
 $promoted = $false
 $started = $false
 $claimed = $false
@@ -221,11 +224,13 @@ try {
     $env:CARGO_BIN_NAME = 'oss'
     $env:WARP_APP_NAME = 'warp-ish'
     $env:GIT_RELEASE_TAG = $Version
+    $env:WARP_ISH_RELEASE_VERSION = $Version
     $env:CARGO_INCREMENTAL = '0'
     $env:CARGO_TARGET_DIR = $target
     $env:RUSTUP_AUTO_INSTALL = '0'
     $env:RUSTUP_TOOLCHAIN = $toolchain
     Invoke-Logged 'cargo' $buildArguments
+    Invoke-Logged 'cargo' $adapterBuildArguments
     if ((Get-SourceFingerprint) -ne $fingerprint) { throw 'Source changed during build.' }
     $binary = Join-Path $target 'x86_64-pc-windows-msvc\rlto\warp-oss.exe'
     # Cargo can hard-link its executable to the matching artifact in deps.
@@ -233,6 +238,11 @@ try {
     $packagedBinary = Join-Path $stage 'app\warp-ish.exe'
     [IO.File]::Copy($binary, $packagedBinary)
     Assert-RegularFile $packagedBinary $stage
+    $adapter = Join-Path $target 'x86_64-pc-windows-msvc\rlto\warp-ish-mcp.exe'
+    Assert-RegularFile $adapter $target -AllowGeneratedHardLink
+    $packagedAdapter = Join-Path $stage 'app\warp-ish-mcp.exe'
+    [IO.File]::Copy($adapter, $packagedAdapter)
+    Assert-RegularFile $packagedAdapter $stage
     foreach ($entry in $payloadSources.GetEnumerator()) {
         Copy-Item -LiteralPath $entry.Value -Destination (Join-Path $stage "app\$($entry.Key)")
     }
@@ -248,7 +258,7 @@ try {
     $metadata = Get-Content -LiteralPath (Join-Path $stage 'app\resources\bundled\metadata\version.json') -Raw | ConvertFrom-Json
     if ($metadata.warp_version -ne $Version) { throw 'Resource version mismatch.' }
     $app = Join-Path $stage 'app'
-    $expected = @('warp-ish.exe') + @($payloadSources.Keys) + @('resources\THIRD_PARTY_LICENSES.txt',
+    $expected = @('warp-ish.exe', 'warp-ish-mcp.exe') + @($payloadSources.Keys) + @('resources\THIRD_PARTY_LICENSES.txt',
         'resources\settings_schema.json', 'resources\bundled\metadata\version.json')
     $actual = @(Get-ChildItem -LiteralPath $app -File -Recurse -Force | ForEach-Object { [IO.Path]::GetRelativePath($app, $_.FullName) })
     if (Compare-Object ($expected | Sort-Object) ($actual | Sort-Object)) { throw 'Unexpected package payload.' }
@@ -272,7 +282,8 @@ try {
         toolchain_file_sha256 = (Get-FileHash -LiteralPath (Join-Path $repo 'rust-toolchain.toml')).Hash.ToLowerInvariant()
         cargo = $cargoVersion; rustc = $rustVersion; cargo_about = $aboutVersion; toolchain = $toolchain
         rustflags = $env:RUSTFLAGS; cargo_encoded_rustflags = $env:CARGO_ENCODED_RUSTFLAGS
-        build_arguments = $buildArguments; schema_executable = 'app/warp-ish.exe'; files = $hashes
+        build_arguments = $buildArguments; adapter_build_arguments = $adapterBuildArguments
+        schema_executable = 'app/warp-ish.exe'; files = $hashes
         acceptance = 'NOT_RUN'; signed = $false
     }
     Write-Json (Join-Path $stage 'manifest.json') $manifest

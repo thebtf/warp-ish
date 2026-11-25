@@ -20,7 +20,7 @@ use crate::local_control::LocalControlBridge;
 use crate::local_control::resolver::{reject_target_families, require_active_window_id_for_action};
 use crate::pane_group::{PaneGroup, PaneId};
 use crate::settings::CodeSettings;
-use crate::workspace::Workspace;
+use crate::workspace::{Workspace, WorkspaceRegistry};
 use crate::workspace::tab_settings::TabSettings;
 
 #[derive(Serialize)]
@@ -32,6 +32,55 @@ struct InstanceResponse<'a> {
     app_id: String,
     protocol_version: u32,
     actions: Vec<ActionMetadata>,
+}
+
+pub(crate) fn where_am_i(
+    instance_id: &InstanceId,
+    terminal_uuid: &str,
+    block_id: Option<&str>,
+    app: &AppContext,
+) -> Result<Value, ControlError> {
+    let bytes = crate::uri::decode_uuid_hex(terminal_uuid).ok_or_else(|| {
+        ControlError::new(
+            ErrorCode::InvalidParams,
+            "terminal_uuid must be a 32-digit hexadecimal pane UUID",
+        )
+    })?;
+    let workspaces = WorkspaceRegistry::as_ref(app).all_workspaces(app);
+    let mut locations = workspaces.iter().flat_map(|(window_id, workspace)| {
+        workspace
+            .as_ref(app)
+            .terminal_locations_by_uuid(&bytes, app)
+            .map(move |(tab, group_id, pane_id)| (*window_id, tab, group_id, pane_id))
+    });
+    let (window_id, tab, group_id, pane_id) = locations.next().ok_or_else(|| {
+        ControlError::new(ErrorCode::StaleTarget, "terminal pane is no longer present")
+    })?;
+    if locations.next().is_some() {
+        return Err(ControlError::new(
+            ErrorCode::AmbiguousTarget,
+            "terminal UUID matches multiple tabs in this instance",
+        ));
+    }
+
+    #[cfg(windows)]
+    let block_id = block_id.filter(|block_id| {
+        tab.as_ref(app)
+            .terminal_view_from_pane_id(pane_id, app)
+            .is_some_and(|terminal| terminal.as_ref(app).mcp_active_block_id() == *block_id)
+    });
+    #[cfg(not(windows))]
+    let block_id = block_id.filter(|_| false);
+
+    Ok(json!({
+        "instance_id": instance_id.0.as_str(),
+        "window_id": window_id.to_string(),
+        "tab_group_id": group_id.map(|id| id.0.to_string()),
+        "tab_id": tab.id().to_string(),
+        "pane_id": pane_id.to_string(),
+        "terminal_uuid": terminal_uuid.to_ascii_lowercase(),
+        "block_id": block_id,
+    }))
 }
 
 fn active_session_target(target: &TargetSelector) -> TargetSelector {
@@ -777,7 +826,7 @@ fn select_pane_entries(
     }
 }
 
-fn window_entries(ctx: &mut ModelContext<LocalControlBridge>) -> Vec<WindowEntry> {
+pub(super) fn window_entries(ctx: &mut ModelContext<LocalControlBridge>) -> Vec<WindowEntry> {
     let mut ids = ctx.window_ids().collect::<Vec<_>>();
     ids.sort_by_key(ToString::to_string);
     ids.into_iter()
