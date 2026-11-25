@@ -4,6 +4,8 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "local_fs")] {
         mod block_list;
         mod sqlite;
+#[cfg(all(windows, feature = "local_fs"))]
+pub(crate) use sqlite::import_terminal_layout;
         pub mod commands;
     }
 }

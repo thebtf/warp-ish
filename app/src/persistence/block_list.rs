@@ -11,7 +11,7 @@ use super::{model, schema};
 use crate::app_state::PaneUuid;
 use crate::terminal::model::block::{SerializedBlock, SerializedBlockListItem};
 
-const MAX_TERMINAL_BLOCKS_TO_PERSIST_PER_SESSION: i64 = 100;
+pub(super) const MAX_TERMINAL_BLOCKS_TO_PERSIST_PER_SESSION: i64 = 100;
 
 type PersistedBlocks = HashMap<PaneUuid, Vec<SerializedBlockListItem>>;
 

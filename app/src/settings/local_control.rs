@@ -13,6 +13,13 @@ use warpui_extras::secure_storage;
 
 const LOCAL_CONTROL_MODE_STORAGE_KEY: &str = "LocalControlMode";
 
+impl LocalControlSettings {
+    pub(crate) fn scripting_available() -> bool {
+        warp_core::features::FeatureFlag::WarpControlCli.is_enabled()
+            || (cfg!(feature = "local_fs") && ChannelState::is_windows_warp_ish())
+    }
+}
+
 /// User-selected local-control availability.
 #[derive(
     Clone,

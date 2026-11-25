@@ -66,6 +66,11 @@ const COMMANDS_COUNT_LIMIT: i64 = 10000;
 
 const WARP_SQLITE_FILE_NAME: &str = "warp.sqlite";
 
+#[cfg(windows)]
+mod warp_import;
+#[cfg(windows)]
+pub(crate) use warp_import::{WarpLayoutImportSummary, import_terminal_layout};
+
 /// Runs any migrations and creates the Sqlite database if it doesn't exist.
 /// Reads from the sqlite database to get the app state for session restoration.
 /// Starts a writer thread that listens for ModelEvents and processes them.

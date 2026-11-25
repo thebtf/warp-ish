@@ -3451,6 +3451,12 @@ impl PaneGroup {
     ) {
         add_session_focus_env_vars(&mut env_vars, terminal_session_uuid);
 
+        #[cfg(all(windows, feature = "local_fs"))]
+        if ChannelState::is_windows_warp_ish() {
+            let endpoint = crate::local_control::mcp_pipe_endpoint(ctx).unwrap_or_default();
+            env_vars.insert(warp_ish_mcp_transport::PIPE_ENV.into(), endpoint.into());
+        }
+
         cfg_if::cfg_if! {
             if #[cfg(feature = "remote_tty")] {
                 let terminal_init = RemoteTtyTerminalManager::create_model(
@@ -3464,15 +3470,13 @@ impl PaneGroup {
                 let terminal_view = terminal_init.view;
             } else if #[cfg(feature = "local_tty")] {
                 let all_restored_blocks = terminal_view_restored_blocks(restored_blocks);
-                let has_restored_command_blocks = all_restored_blocks
-                    .as_ref()
-                    .is_some_and(|blocks| !blocks.is_empty());
+                let has_restored_command_blocks = all_restored_blocks.is_some();
                 let model_event_sender_for_surface = model_event_sender.clone();
                 let window_id = ctx.window_id();
                 let terminal_init = LocalTtyTerminalManager::<TerminalView>::create_model(
                     startup_directory,
                     env_vars,
-                    all_restored_blocks.as_ref(),
+                    all_restored_blocks,
                     user_default_shell_unsupported_banner_model_handle,
                     initial_size,
                     model_event_sender,

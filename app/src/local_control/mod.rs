@@ -59,6 +59,8 @@
 //! endpoint metadata and credential broker references while Scripting is enabled.
 mod bridge;
 mod handlers;
+#[cfg(windows)]
+mod mcp_runtime;
 mod permissions;
 mod resolver;
 
@@ -117,6 +119,8 @@ struct ControlServerState {
 /// route alive. Dropping them stops request handling and removes the app's
 /// published record and broker socket.
 pub struct LocalControlServer {
+    #[cfg(windows)]
+    mcp: Option<mcp_runtime::McpServer>,
     _runtime: Option<tokio::runtime::Runtime>,
     control_endpoint: Option<ControlEndpoint>,
     registered_instance: Option<RegisteredInstance>,
@@ -131,6 +135,8 @@ impl SingletonEntity for LocalControlServer {}
 impl LocalControlServer {
     pub fn new(ctx: &mut ModelContext<Self>) -> Self {
         let mut server = Self {
+            #[cfg(windows)]
+            mcp: None,
             _runtime: None,
             control_endpoint: None,
             registered_instance: None,
@@ -151,6 +157,16 @@ impl LocalControlServer {
 
     /// Starts, refreshes, or removes local-control publication as settings change.
     fn refresh_for_settings(&mut self, ctx: &mut ModelContext<Self>) -> Result<(), ControlError> {
+        #[cfg(windows)]
+        if ChannelState::is_windows_warp_ish() {
+            if !crate::settings::LocalControlSettings::as_ref(ctx).is_enabled() {
+                self.mcp = None;
+                LocalControlBridge::handle(ctx).update(ctx, |bridge, _| bridge.clear_instance_id());
+            } else if self.mcp.is_none() {
+                self.mcp = Some(mcp_runtime::McpServer::start(ctx)?);
+            }
+            return Ok(());
+        }
         if !permissions::warp_control_cli_enabled() {
             self.stop(ctx);
             return Ok(());
@@ -282,6 +298,17 @@ impl LocalControlServer {
         record.credential_broker = registered_instance.record().credential_broker.clone();
         registered_instance.update(record)
     }
+}
+
+#[cfg(windows)]
+pub(crate) fn mcp_pipe_endpoint(ctx: &warpui::AppContext) -> Option<&str> {
+    if !ctx.has_singleton_model::<LocalControlServer>() {
+        return None;
+    }
+    LocalControlServer::as_ref(ctx)
+        .mcp
+        .as_ref()
+        .map(|server| server.endpoint.as_str())
 }
 
 /// Builds routing metadata without embedding any bearer credential or secret.

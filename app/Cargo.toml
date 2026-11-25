@@ -5,7 +5,7 @@ description = "The cloud-backed terminal for individuals and teams"
 edition = "2024"
 autobins = false
 name = "warp"
-version = "0.1.0"
+version = "0.1.1"
 publish.workspace = true
 license.workspace = true
 
@@ -350,6 +350,8 @@ zbus.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 bytemuck.workspace = true
+jsonschema = { workspace = true, default-features = false }
+warp_ish_mcp_transport = { path = "../crates/warp_ish_mcp_transport" }
 windows = { workspace = true, features = [
     "Wdk_Foundation",
     "Wdk_Storage_FileSystem",

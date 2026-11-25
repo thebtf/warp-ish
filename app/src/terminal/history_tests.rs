@@ -1003,6 +1003,68 @@ fn append_restored_command_doesnt_overwrite_rich_history() {
     });
 }
 
+#[cfg(windows)]
+#[test]
+fn imported_power_shell_commands_are_available_with_up_arrow() {
+    App::test((), |mut app| async move {
+        let session = Arc::new(Session::new(
+            SessionInfo::new_for_test(),
+            Arc::new(TestCommandExecutor::default()),
+        ));
+        let host = ShellHost::from_session(&session);
+        let persisted_command = |command: &str, shell_host| PersistedCommand {
+            id: 0,
+            command: command.to_owned(),
+            exit_code: Some(ExitCode::from(0)),
+            start_ts: None,
+            completed_ts: None,
+            pwd: None,
+            shell_host: Some(shell_host),
+            session_id: None,
+            git_branch: None,
+            workflow_command: None,
+            is_agent_executed: false,
+        };
+        let other_user = ShellHost {
+            user: "other-user".to_owned(),
+            ..host.clone()
+        };
+        let persisted = vec![
+            persisted_command("Write-Output duplicate", host.clone()),
+            persisted_command("Write-Output sqlite-only", host),
+            persisted_command("Write-Output other-user", other_user),
+        ];
+        let mut history_handle =
+            app.add_model(|_| History::from_persisted_commands(persisted, true));
+        initialize_history_for_testing(
+            &mut history_handle,
+            session.clone(),
+            async {
+                vec![
+                    "Write-Output duplicate".to_owned(),
+                    "Write-Output histfile".to_owned(),
+                ]
+            },
+            vec!["Write-Output current-session".to_owned()],
+            &mut app,
+        )
+        .await;
+
+        history_handle.read(&app, |history, ctx| {
+            let commands = history.up_arrow_command_suggestions(Some(session.id()), ctx);
+            assert_eq!(
+                commands.iter().map(|command| command.text()).collect_vec(),
+                [
+                    "Write-Output sqlite-only",
+                    "Write-Output duplicate",
+                    "Write-Output histfile",
+                    "Write-Output current-session",
+                ],
+            );
+        });
+    });
+}
+
 #[test]
 fn is_appendable_vs_is_queryable() {
     App::test((), |mut app| async move {

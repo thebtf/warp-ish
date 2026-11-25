@@ -665,6 +665,8 @@ pub enum FeaturesPageAction {
     ToggleAsyncFind,
     ToggleNotifications,
     ToggleRestoreSession,
+    #[cfg(all(windows, feature = "local_fs"))]
+    ImportWarpWorkspace,
     ToggleAutocompleteSymbols,
     ToggleLinuxClipboardSelection,
     ToggleOpenLinksInDesktopApp,
@@ -847,6 +849,8 @@ enum KeybindingEditorState {
 
 pub struct FeaturesPageView {
     page: PageType<Self>,
+    #[cfg(all(windows, feature = "local_fs"))]
+    importing_warp_workspace: bool,
 
     global_resource_handles: GlobalResourceHandles,
 
@@ -995,6 +999,38 @@ impl TypedActionView for FeaturesPageView {
                 GeneralSettings::handle(ctx).update(ctx, |general_settings, ctx| {
                     report_if_error!(general_settings.restore_session.toggle_and_save_value(ctx))
                 })
+            }
+            #[cfg(all(windows, feature = "local_fs"))]
+            ImportWarpWorkspace => {
+                if !ChannelState::is_windows_warp_ish() || self.importing_warp_workspace {
+                    return;
+                }
+                self.importing_warp_workspace = true;
+                ctx.notify();
+                let window = ctx.window_id();
+                ctx.spawn(async {
+                    tokio::task::spawn_blocking(crate::warp_import::run).await?
+                }, move |view, result, ctx| {
+                    use crate::view_components::DismissibleToast;
+                    use crate::workspace::ToastStack;
+
+                    view.importing_warp_workspace = false;
+                    ToastStack::handle(ctx).update(ctx, |toasts, ctx| match result {
+                        Ok(message) => toasts.add_ephemeral_toast(
+                            DismissibleToast::success(message),
+                            window,
+                            ctx,
+                        ),
+                        Err(error) => toasts.add_persistent_toast(
+                            DismissibleToast::error(format!(
+                                "Could not import Warp workspace: {error:#}"
+                            )),
+                            window,
+                            ctx,
+                        ),
+                    });
+                    ctx.notify();
+                });
             }
             ToggleAutocompleteSymbols => {
                 AppEditorSettings::handle(ctx).update(ctx, |editor_settings, ctx| {
@@ -2028,6 +2064,8 @@ impl FeaturesPageView {
         });
 
         let mut features_page_view = FeaturesPageView {
+            #[cfg(all(windows, feature = "local_fs"))]
+            importing_warp_workspace: false,
             page: Self::build_page(ctx),
             global_resource_handles,
             button_mouse_states: Default::default(),
@@ -2097,6 +2135,10 @@ impl FeaturesPageView {
         let local_gui = ChannelState::is_windows_warp_ish();
         let mut general_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> =
             vec![Box::new(DefaultSessionModeWidget::default())];
+        #[cfg(all(windows, feature = "local_fs"))]
+        if local_gui {
+            general_widgets.push(Box::new(ImportWarpWorkspaceWidget::default()));
+        }
 
         if !local_gui
             && NativePreferenceSettings::as_ref(ctx)
@@ -3901,6 +3943,55 @@ impl SettingsWidget for NativeRedirectWidget {
                 })
                 .finish(),
             None,
+        )
+    }
+}
+
+#[cfg(all(windows, feature = "local_fs"))]
+#[derive(Default)]
+struct ImportWarpWorkspaceWidget {
+    button: MouseStateHandle,
+}
+
+#[cfg(all(windows, feature = "local_fs"))]
+impl SettingsWidget for ImportWarpWorkspaceWidget {
+    type View = FeaturesPageView;
+
+    fn search_terms(&self) -> &str {
+        "import migration warp workspace settings saved windows tab panes"
+    }
+
+    fn render(
+        &self,
+        view: &Self::View,
+        appearance: &Appearance,
+        _app: &AppContext,
+    ) -> Box<dyn Element> {
+        let builder = appearance
+            .ui_builder()
+            .button(ButtonVariant::Secondary, self.button.clone());
+        let button = if view.importing_warp_workspace {
+            builder
+                .with_text_label("Importing…".into())
+                .disabled()
+                .build()
+                .finish()
+        } else {
+            builder
+                .with_text_label("Import".into())
+                .build()
+                .on_click(|ctx, _, _| {
+                    ctx.dispatch_typed_action(FeaturesPageAction::ImportWarpWorkspace)
+                })
+                .finish()
+        };
+        render_body_item::<FeaturesPageAction>(
+            "Import from Warp".into(),
+            None,
+            ToggleState::Enabled,
+            appearance,
+            button,
+            Some("Open Warp Stable’s saved terminal workspace and settings in a new warp-ish profile.".into()),
         )
     }
 }
@@ -6036,6 +6127,21 @@ impl SettingsWidget for DefaultSessionModeWidget {
             None,
             appearance,
         );
+        let value = if ChannelState::is_windows_warp_ish() {
+            let settings = SessionSettings::as_ref(app);
+            let tab_config = if settings.default_session_mode() == DefaultSessionMode::TabConfig {
+                settings.resolved_default_tab_config(app)
+            } else {
+                None
+            };
+            let text = tab_config.map_or_else(
+                || DefaultSessionMode::Terminal.display_name().to_string(),
+                |config| config.name,
+            );
+            render_dropdown_item_label(text, None, None, appearance)
+        } else {
+            ChildView::new(&view.default_session_mode_dropdown).finish()
+        };
 
         Flex::row()
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
@@ -6049,7 +6155,7 @@ impl SettingsWidget for DefaultSessionModeWidget {
                 )
                 .finish(),
             )
-            .with_child(ChildView::new(&view.default_session_mode_dropdown).finish())
+            .with_child(value)
             .finish()
     }
 }

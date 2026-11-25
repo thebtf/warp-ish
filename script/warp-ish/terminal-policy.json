@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_upstream_sha": "75f8808a1c94ee54840f517cfff54595589c32a5",
+  "observed_upstream_sha": "e3525c726d885830a66474fd468ac8014dbf2ec8",
   "source_repository": "https://github.com/warpdotdev/warp",
   "stable_tag_pattern": "(?:v?\\d+\\.\\d+\\.\\d+(?:\\+[-.0-9A-Za-z]+)?|v0\\.\\d{4}\\.\\d{2}\\.\\d{2}\\.\\d{2}\\.\\d{2}\\.stable_\\d+)",
   "stable_tag_note": "Syntactic filter for observed Warp stable tags such as v0.2026.06.03.09.49.stable_00 and stable SemVer. All other tags remain in the observation for review. Tag names alone do not establish release provenance or ordering.",
@@ -39,6 +39,14 @@
         "target.cfg(target_os = \"windows\").dependencies|windows": {
           "sha256": "dc089218ebb847fc2f6f9f979f48b485375cc87420f0567ab14cdb98ac2d4d93",
           "reason": "Inherits the reviewed native Windows bindings for the desktop application."
+        },
+        "target.cfg(target_os = \"windows\").dependencies|jsonschema": {
+          "sha256": "35c7ec88088d9187b05102a7d1ef87c924c01ad735df62ed1e4002ce0f441460",
+          "reason": "Validates terminal settings imported on Windows against the local schema with default features disabled."
+        },
+        "target.cfg(target_os = \"windows\").dependencies|warp_ish_mcp_transport": {
+          "sha256": "fdd4f373e26756abff35217c2116fccf79abb8ddfb8be10a98fb464d1cd4e2ba",
+          "reason": "Opt-in same-user named pipe for the local warp-ish MCP adapter on Windows."
         }
       },
       "crates/warp_terminal/Cargo.toml": {
@@ -52,6 +60,12 @@
       "app/src/lib.rs": {
         "init_calls": {
           "view_components::keyboard_navigable_buttons::init": "Registers local keyboard navigation for buttons."
+        },
+        "modules": {
+          "warp_import": "Imports saved Windows terminal workspaces and settings from local files."
+        },
+        "service_calls": {
+          "AppExecutionMode::new": "Initializes the local execution mode and sandbox flag used by session persistence and application lifecycle."
         }
       }
     }
@@ -149,7 +163,8 @@
     "app/src/editor/view/voice.rs": "cloud_voice",
     "app/src/settings/tui_voice.rs": "cloud_voice",
     "crates/computer_use_mcp": "computer_use",
-    "crates/preview_proxy": "warp_backend"
+    "crates/preview_proxy": "warp_backend",
+    "app/src/ai/agent_sdk": "built_in_agents"
   },
   "forbidden_features": [
     "account_first_onboarding",
@@ -270,6 +285,7 @@
     "retry_truncated_code_responses",
     "selection_as_context",
     "send_telemetry_to_file",
+    "session_agent_messages",
     "session_sharing_acls",
     "shared_block_title_generation",
     "shared_session_long_running_commands",
@@ -345,7 +361,7 @@
   ],
   "observed_files": {
     "Cargo.toml": {
-      "sha256": "655479da29cd1dc03ad5d945ff77a5e5e8856993d7eadb2b89d68fca19e4d1f1",
+      "sha256": "9b5b8353df8720d409ceb91d17a6c61032ef2f7718f4792478e6556f7a1d6773",
       "dependencies": {
         "workspace.dependencies|ai": {
           "sha256": "cd50eff4dde6646c0f97817bf5f013718e41b2b27ee116609c4e3ed312106a0e"
@@ -391,6 +407,9 @@
         },
         "workspace.dependencies|async-io": {
           "sha256": "9638ebc50d15b14e7b85ef526f05f8d635f4b05bef324d0e847e3126d90d9426"
+        },
+        "workspace.dependencies|async-lock": {
+          "sha256": "f28ad6e7ae4f30d5b527150e4f4ae952a09f5cd6f45b80eef3b4dfa85a27859f"
         },
         "workspace.dependencies|async-process": {
           "sha256": "db8d50c4cb86d946572fc1d91017b211bbf31f07365888a5e7aeed5952c8eb08"
@@ -481,6 +500,9 @@
         },
         "workspace.dependencies|computer_use": {
           "sha256": "f0fb0fde79a92bc7e873f9141d5f83a691d976cc50abe7b0c3bb14c3a0f552b3"
+        },
+        "workspace.dependencies|computer_use_mcp": {
+          "sha256": "fec83cb13361e8df873ed55224808325ec16d56fd93f11b0ce3329dd2dd5cd86"
         },
         "workspace.dependencies|concat-idents": {
           "sha256": "c9a307c1d5055eca71d853c35749344b6fe9d190c2c396031f43c33950f4924f"
@@ -590,6 +612,9 @@
         "workspace.dependencies|http": {
           "sha256": "aa3bbf7b3112fddfcabf8916223c063318e7a012efaba8f2d11b999028e5c435"
         },
+        "workspace.dependencies|http-body-util": {
+          "sha256": "275de2da62a30ec3b67dd9080931c351b347d2521a05f8443f3a1f8cdcded8de"
+        },
         "workspace.dependencies|http_client": {
           "sha256": "addf02d64ca63f11db9d87c9aefc65e19ce94d44d1ddec9c86d3a1586e3cd832"
         },
@@ -601,6 +626,9 @@
         },
         "workspace.dependencies|hyper": {
           "sha256": "c5300642cfa1adb8d1d4d67517165b04e355115206115e493fa520f618a0d09d"
+        },
+        "workspace.dependencies|hyper-util": {
+          "sha256": "275de2da62a30ec3b67dd9080931c351b347d2521a05f8443f3a1f8cdcded8de"
         },
         "workspace.dependencies|image": {
           "sha256": "6f2624a81a6d1d442c641f83de05d0ccef16a07f26372be2d3bcc2b663ed550c"
@@ -788,6 +816,9 @@
         "workspace.dependencies|prevent_sleep": {
           "sha256": "f33825e573d4a75e3184b9f607e2fa964e2ac518d0893702bb893db59a5a6b88"
         },
+        "workspace.dependencies|preview_proxy": {
+          "sha256": "f6418f9a4e58c3b05c9b50a93c0eacfe2ee2373411d7cae53c90f626892d3148"
+        },
         "workspace.dependencies|prost": {
           "sha256": "3a7a9276f2433604407b804b2dccb1c892dfd4a1a3ff97dcaf1bd095dff4b44a"
         },
@@ -799,6 +830,9 @@
         },
         "workspace.dependencies|prost-types": {
           "sha256": "3a7a9276f2433604407b804b2dccb1c892dfd4a1a3ff97dcaf1bd095dff4b44a"
+        },
+        "workspace.dependencies|qrcode": {
+          "sha256": "d3418faba09085f958bf2e6c399375b74433a023d434ef69ae85dbc19fd9c69c"
         },
         "workspace.dependencies|rand": {
           "sha256": "661c073dd2b321172411c4fcee0da87a2f22c18a3d57d8d1ede00a450e1ae580"
@@ -1074,7 +1108,7 @@
           "sha256": "96a6767224eb80ba5caadf390a33ff57922dbad173824177dca7e62390624102"
         },
         "workspace.dependencies|warp_multi_agent_api": {
-          "sha256": "b71a7c21b103541f32fd5442c1ccb4a394355a965d5717f60f666a21eaf548d6"
+          "sha256": "e2ae7e5f1e79a5bd9b227a99d4ca43862b9e7cef946504a1cfe0725e35fd0fdc"
         },
         "workspace.dependencies|warp_multi_agent_client": {
           "sha256": "fdd4c01ee273a7cf3f62022ecfed47c6232336e99bbfa5a2500dcb260a90ce1b"
@@ -1158,7 +1192,7 @@
       "features": []
     },
     "app/Cargo.toml": {
-      "sha256": "6d1ea3d81f7332503cf4a520a5d84370a052041445e1f106a2de731c16213594",
+      "sha256": "d4a96be462a4818a76aef44095aeac2e93cb911d8a147943d90dad1b92594a60",
       "dependencies": {
         "build-dependencies|anyhow": {
           "sha256": "4e3043229142b64d998563bc543ce034e0a2251af5d404995e3afcb8ce8850df"
@@ -1484,6 +1518,9 @@
         "dependencies|natural_language_detection": {
           "sha256": "2ed6e4494700486f92f6d83c1cc0cdb3b67b5829c5ea2b98afa92622874785d6"
         },
+        "dependencies|non_structural_derive": {
+          "sha256": "3c6982404184da7f005dd57f14d66a0f401a154f7c7ec0ef5d40c583bacbcf41"
+        },
         "dependencies|num-traits": {
           "sha256": "f4df8cce100ab9a312be1fdebd3f27281b81b2ecea0ef8d522a6d51689b10878"
         },
@@ -1534,6 +1571,9 @@
         },
         "dependencies|prost-types": {
           "sha256": "3a7a9276f2433604407b804b2dccb1c892dfd4a1a3ff97dcaf1bd095dff4b44a"
+        },
+        "dependencies|qrcode": {
+          "sha256": "d3418faba09085f958bf2e6c399375b74433a023d434ef69ae85dbc19fd9c69c"
         },
         "dependencies|rand": {
           "sha256": "661c073dd2b321172411c4fcee0da87a2f22c18a3d57d8d1ede00a450e1ae580"
@@ -1782,7 +1822,7 @@
           "sha256": "96a6767224eb80ba5caadf390a33ff57922dbad173824177dca7e62390624102"
         },
         "dependencies|warp_multi_agent_api": {
-          "sha256": "b71a7c21b103541f32fd5442c1ccb4a394355a965d5717f60f666a21eaf548d6"
+          "sha256": "e2ae7e5f1e79a5bd9b227a99d4ca43862b9e7cef946504a1cfe0725e35fd0fdc"
         },
         "dependencies|warp_multi_agent_client": {
           "sha256": "fdd4c01ee273a7cf3f62022ecfed47c6232336e99bbfa5a2500dcb260a90ce1b"
@@ -1943,6 +1983,9 @@
         "target.cfg(not(target_family = \"wasm\")).dependencies|comfy-table": {
           "sha256": "0e18cc16cbb2682089e16e3b3902502ad4286e7aed2beb004d28ac5405d3fd06"
         },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|computer_use_mcp": {
+          "sha256": "fec83cb13361e8df873ed55224808325ec16d56fd93f11b0ce3329dd2dd5cd86"
+        },
         "target.cfg(not(target_family = \"wasm\")).dependencies|diesel": {
           "sha256": "5940f9dd0395a88d5d054fb1de5a990bbebaa5552d7503c789c68a2d25d418c1"
         },
@@ -1987,6 +2030,9 @@
         },
         "target.cfg(not(target_family = \"wasm\")).dependencies|opentelemetry_sdk": {
           "sha256": "6a9bc0aa1fa3a753ac3e3744052545d4a7ede0dea28499a8f5007451d509d227"
+        },
+        "target.cfg(not(target_family = \"wasm\")).dependencies|preview_proxy": {
+          "sha256": "f6418f9a4e58c3b05c9b50a93c0eacfe2ee2373411d7cae53c90f626892d3148"
         },
         "target.cfg(not(target_family = \"wasm\")).dependencies|rustls": {
           "sha256": "c711b26fcc3b412b223c7473aae774e9b1d463a80ec8d33e186a9a3d06a2ff03"
@@ -2208,6 +2254,7 @@
         "codex_plugin",
         "command_correction_key",
         "command_palette_file_search",
+        "computer_use_mcp",
         "configurable_toolbar",
         "context_line_review_comments",
         "context_window_usage_breakdown",
@@ -2305,6 +2352,7 @@
         "log_expensive_frames_in_sentry",
         "loginless_conversion",
         "lsp_as_a_tool",
+        "managed_mcp_credential_refresh",
         "markdown_mermaid",
         "markdown_tables",
         "mcp_debugging_ids",
@@ -2361,6 +2409,7 @@
         "render_agent_mode_output_markdown",
         "render_continuous_block_selections_with_single_border",
         "resize_fix",
+        "restore_local_subtree",
         "restore_prompt_on_inline_model_selector_search",
         "retry_truncated_code_responses",
         "revert_diff_hunk",
@@ -2375,6 +2424,7 @@
         "selection_as_context",
         "send_telemetry_to_file",
         "sequential_storage",
+        "session_agent_messages",
         "session_sharing_acls",
         "settings_file",
         "shared_block_title_generation",
@@ -2681,7 +2731,7 @@
       ]
     },
     "app/src/lib.rs": {
-      "sha256": "ecd7735b2ffee0571a2a99920da81962ef88fdcb7f882d626cd7890d137d4692",
+      "sha256": "8991d4f115c28573a178168787cd3432b7b0c13657fa584bfc9382a4f2d475c5",
       "registrations": {
         "modules": [
           "ai",
@@ -2743,6 +2793,7 @@
           "prefix",
           "preview_config_migration",
           "pricing",
+          "process_environment",
           "profiling",
           "projects",
           "prompt",
@@ -2855,7 +2906,6 @@
           "AIRequestUsageModel::new",
           "AISettings::handle",
           "ActiveAgentViewsModel::new",
-          "AppExecutionMode::new",
           "AppearanceManager::handle",
           "Arc::new",
           "AudibleBell::new",
@@ -2881,6 +2931,8 @@
           "GlobalResourceHandlesProvider::new",
           "History::new",
           "HomeDirectoryWatcher::new",
+          "HookRegistry::new",
+          "HookRuntime::new",
           "IapManager::handle",
           "IapManager::new",
           "IapState::new",
@@ -3028,7 +3080,7 @@
       }
     },
     "app/src/settings/init.rs": {
-      "sha256": "4872b4b18a68309da43b9b54ed8bd23fe0fb79e56b3c3215072ceb36e09a771e",
+      "sha256": "211c8f89cfb42eb27a5bd9f1cd589374fcd28d1880766af5aafe6fe382018c96",
       "registrations": {
         "modules": [
           "tests"
@@ -3114,7 +3166,7 @@
       }
     },
     "app/src/root_view.rs": {
-      "sha256": "825ada707335c860156781b0b564d653412988fea86e37989ff63915d2613617",
+      "sha256": "895e00240dae08bf41b23bdb9bc0573cfa7e7b59b2b3edaa02c7e8d5304fbc24",
       "registrations": {
         "modules": [
           "tests"

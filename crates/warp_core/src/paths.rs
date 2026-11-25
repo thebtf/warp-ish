@@ -371,7 +371,7 @@ fn project_dirs() -> Option<directories::ProjectDirs> {
 /// and data profile.
 ///
 /// This returns [`None`] if the user's home directory could not be determined.
-fn project_dirs_for_app_id(
+pub fn project_dirs_for_app_id(
     app_id: AppId,
     data_profile: Option<&str>,
 ) -> Option<directories::ProjectDirs> {
@@ -396,6 +396,36 @@ fn project_dirs_for_app_id(
         base_app_name
     };
     directories::ProjectDirs::from(app_id.qualifier(), app_id.organization(), &app_name)
+}
+
+/// The default warp-ish profile can point to a successfully staged Warp import.
+#[cfg(windows)]
+pub fn windows_import_profile_pointer() -> Option<PathBuf> {
+    project_dirs_for_app_id(AppId::windows_warp_ish(), None)
+        .map(|dirs| dirs.config_local_dir().join("active-import-profile"))
+}
+
+#[cfg(windows)]
+pub fn valid_windows_import_profile(profile: &str) -> bool {
+    profile.strip_prefix("import-").is_some_and(|id| {
+        id.len() == 32
+            && id
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    })
+}
+
+#[cfg(windows)]
+pub(crate) fn active_windows_import_profile() -> Option<String> {
+    let pointer = windows_import_profile_pointer()?;
+    let profile = std::fs::read_to_string(pointer).ok()?;
+    let profile = profile.trim();
+    if !valid_windows_import_profile(profile) {
+        return None;
+    }
+    let dirs = project_dirs_for_app_id(AppId::windows_warp_ish(), Some(profile))?;
+    let state = dirs.data_local_dir().join("warp.sqlite");
+    state.is_file().then(|| profile.to_owned())
 }
 
 /// Returns the path to the app's secure group container on macOS.
