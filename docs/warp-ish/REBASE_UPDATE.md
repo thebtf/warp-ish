@@ -36,7 +36,11 @@ python script/warp-ish/maintain.py audit --repo .
 
 Inspect the upstream additions and changed entry points even after a conflict-free rebase. Cover dependency and feature edges, startup registrations, settings/actions and packaged services around the affected surfaces. The targeted audit supplements this review. Update the policy pin and observed records from the target tree. Review new or changed inventory before allowing it. Require scoped removals and drift checks to pass before compiling. The limited source audit reports full terminal-only verification separately. Keep the pins, comparison, results and any conflicts under the root project's run records. A rehearsal can stop here with a reproducible candidate. Promotion requires the update checks below.
 
+The audit can exit with code 2 when the scoped checks pass. Check `scoped_removal.status` and `checks.scope_and_drift.status` in the JSON report. The `terminal_only` field tracks broader verification separately.
+
 In WARP-010, the official master target `e3525c726d885830a66474fd468ac8014dbf2ec8` was eleven upstream commits ahead of `75f8808a1c94ee54840f517cfff54595589c32a5`. The first fork commit had 48 modify/delete and eight content conflicts. All nine later fork patches matched their original counterparts. Inspecting new upstream paths found five files for excluded platform features that had arrived without conflicts. After resolving those changes, the only product-tree delta from the accepted fork was an upstream Arch Linux packaging edit.
+
+The WARP-010 rehearsal used one RC4 Windows build and the accepted RC3 archive as its runtime baseline. In a disposable profile, upgrading to RC4 preserved two tabs, one split, three PowerShell working directories, settings and the three seeded history entries. RC3 restored the pre-upgrade snapshot and omitted the RC4-only history entry. Neither restart replayed the seed commands. The packaged MCP adapter returned its usage examples and passed the addressed peer lifecycle. The rehearsal exercised snapshot restoration directly on the disposable profile.
 
 ## Update acceptance
 
