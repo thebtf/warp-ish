@@ -1,6 +1,6 @@
 # Локальное сопровождение warp-ish
 
-`script/warp-ish/maintain.py` работает с Python 3.11+ и Git. Зависимости Python входят в стандартную библиотеку. Политика лежит рядом в `terminal-policy.json` и закреплена за upstream-коммитом `75f8808a1c94ee54840f517cfff54595589c32a5`.
+`script/warp-ish/maintain.py` работает с Python 3.11+ и Git. Зависимости Python входят в стандартную библиотеку. Политика лежит рядом в `terminal-policy.json`. Поле `observed_upstream_sha` указывает закреплённый upstream-коммит. Порядок обновления принятой ветки описан в [протоколе rebase](REBASE_UPDATE.md).
 
 ## Аудит исходников
 
