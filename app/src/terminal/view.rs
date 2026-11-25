@@ -333,6 +333,19 @@ lazy_static! {
     static ref ALT_SCREEN_APPS_THAT_MUST_MATCH_BLOCKLIST_PADDING: HashSet<&'static str> = HashSet::from(["k9s", "lazygit"]);
 }
 
+fn alt_screen_must_match_blocklist_padding(command: &str, is_windows_warp_ish: bool) -> bool {
+    if ALT_SCREEN_APPS_THAT_MUST_MATCH_BLOCKLIST_PADDING.contains(command) {
+        return true;
+    }
+
+    // OMP switches screens when handling a resize. Matching the padding avoids
+    // sending another resize in response to that switch.
+    is_windows_warp_ish
+        && command.rsplit(['/', '\\']).next().is_some_and(|name| {
+            name.eq_ignore_ascii_case("omp") || name.eq_ignore_ascii_case("omp.exe")
+        })
+}
+
 pub const AI_CONTROL_PANEL_MARGIN: f32 = 10.;
 
 pub const OVERFLOW_BUTTON_OFFSET_X: f32 = -3.;
@@ -5470,8 +5483,11 @@ impl TerminalView {
                         .top_level_command(self.sessions.as_ref(ctx));
                     // If we don't know what the top-level command is,
                     // we should still perform the redundant resize.
-                    if active_command.is_none_or(|cmd| {
-                        !ALT_SCREEN_APPS_THAT_MUST_MATCH_BLOCKLIST_PADDING.contains(cmd.as_str())
+                    if active_command.as_deref().is_none_or(|cmd| {
+                        !alt_screen_must_match_blocklist_padding(
+                            cmd,
+                            ChannelState::is_windows_warp_ish(),
+                        )
                     }) {
                         // Since the alt-screen and blocklist have different sizes,
                         // let's make sure to refresh the winsize when switching
@@ -13799,8 +13815,8 @@ pub fn create_size_info(
             if model.is_alt_screen_active()
                 // If we don't know what the top-level command is,
                 // it's not denylisted so we use the custom padding.
-                && active_command.is_none_or(|cmd| {
-                    !ALT_SCREEN_APPS_THAT_MUST_MATCH_BLOCKLIST_PADDING.contains(cmd.as_str())
+                && active_command.as_deref().is_none_or(|cmd| {
+                    !alt_screen_must_match_blocklist_padding(cmd, ChannelState::is_windows_warp_ish())
                 }) =>
         {
             SizeInfo::new(
