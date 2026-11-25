@@ -77,6 +77,19 @@ fn negotiates_both_versions_and_lists_the_static_catalog() {
             responses[0]["result"]["serverInfo"]["version"],
             "0.1.0-test"
         );
+        let instructions = responses[0]["result"]["instructions"].as_str().unwrap();
+        for term in [
+            "`where_am_i`",
+            "`split_pane`",
+            "`pane.id`",
+            "`pane_id`",
+            "`start_peer`",
+            "idle PowerShell prompt",
+            "`send_key`",
+            "`close_pane`",
+        ] {
+            assert!(instructions.contains(term), "missing {term} for {version}");
+        }
         assert_eq!(responses[1]["id"], "list");
         let tools = responses[1]["result"]["tools"].as_array().unwrap();
         assert_eq!(tools.len(), 8);

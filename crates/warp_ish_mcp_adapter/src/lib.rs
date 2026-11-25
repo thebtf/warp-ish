@@ -10,6 +10,13 @@ use serde_json::{Map, Value, json};
 pub const MAX_FRAME_BYTES: usize = 64 * 1024;
 const LEGACY_VERSION: &str = "2024-11-05";
 const CURRENT_VERSION: &str = "2025-06-18";
+const INSTRUCTIONS: &str = concat!(
+    "If you need to find your own pane, `where_am_i` returns its ID.\n",
+    "If you want a separate peer, `split_pane` returns a `pane.id` that can be used as ",
+    "`pane_id` for `start_peer` once the new pane reaches an idle PowerShell prompt.\n",
+    "If a running peer needs a keystroke, `send_key` can target its pane by ID. ",
+    "If you want to close that pane, `close_pane` takes the same ID.",
+);
 
 pub struct ToolError {
     pub code: String,
@@ -112,7 +119,8 @@ impl State {
         Ok(json!({
             "protocolVersion": protocol_version,
             "capabilities": {"tools": {"listChanged": false}},
-            "serverInfo": {"name": "warp-ish", "version": server_version}
+            "serverInfo": {"name": "warp-ish", "version": server_version},
+            "instructions": INSTRUCTIONS
         }))
     }
 }
