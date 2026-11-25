@@ -127,6 +127,15 @@ if ($args[0] -eq 'metadata') {
     exit 0
 }
 if ($args[0] -ne 'build' -or '-j' -notin $args -or '--locked' -notin $args) { exit 19 }
+$binIndex = [array]::IndexOf($args, '--bin')
+$packageIndex = [array]::IndexOf($args, '-p')
+if ($binIndex -lt 0 -or $packageIndex -lt 0) { exit 34 }
+$binaryName = $args[$binIndex + 1]
+$fixtureText = switch ($binaryName) {
+    'warp-oss' { if ($args[$packageIndex + 1] -eq 'warp') { 'fixture executable' } }
+    'warp-ish-mcp' { if ($args[$packageIndex + 1] -eq 'warp-ish-mcp-adapter') { 'fixture MCP adapter' } }
+}
+if (-not $fixtureText) { exit 34 }
 if ($env:PACKAGE_FIXTURE_MODE -in @('managed', 'concurrent')) {
     $checkout = [IO.DirectoryInfo]::new((Get-Location).ProviderPath)
     $expectedBuild = Join-Path $checkout.Parent.Parent.Parent.FullName '.agent/build'
@@ -146,16 +155,16 @@ if ($env:PACKAGE_FIXTURE_MODE -in @('managed', 'concurrent')) {
 }
 $output = Join-Path $env:CARGO_TARGET_DIR 'x86_64-pc-windows-msvc/rlto'
 [void][IO.Directory]::CreateDirectory($output)
-$binary = Join-Path $output 'warp-oss.exe'
+$binary = Join-Path $output "$binaryName.exe"
 if ($env:PACKAGE_FIXTURE_MODE -eq 'hardlink') {
     $deps = Join-Path $output 'deps'
     [void][IO.Directory]::CreateDirectory($deps)
-    $artifact = Join-Path $deps 'warp_oss-fixture.exe'
-    'fixture executable' | Set-Content -LiteralPath $artifact
+    $artifact = Join-Path $deps "$binaryName-fixture.exe"
+    $fixtureText | Set-Content -LiteralPath $artifact
     [void](New-Item -ItemType HardLink -Path $binary -Target $artifact)
     if ((Get-Item -LiteralPath $binary).LinkType -ne 'HardLink') { exit 29 }
 } else {
-    'fixture executable' | Set-Content -LiteralPath $binary
+    $fixtureText | Set-Content -LiteralPath $binary
 }
 if ($env:PACKAGE_FIXTURE_MODE -eq 'fail') { exit 7 }
 if ($env:PACKAGE_FIXTURE_MODE -eq 'drift') { Add-Content -LiteralPath Cargo.lock -Value '# changed during build' }
@@ -220,7 +229,16 @@ function Start-Process {
     Assert-That ($record.archive_sha256 -eq (Get-FileHash -LiteralPath (Join-Path $package $record.archive)).Hash.ToLowerInvariant()) 'Archive binding failed'
     Assert-That ($record.manifest_sha256 -eq (Get-FileHash -LiteralPath (Join-Path $package 'manifest.json')).Hash.ToLowerInvariant()) 'Manifest binding failed'
     $manifest = Get-Content -LiteralPath (Join-Path $package 'manifest.json') -Raw | ConvertFrom-Json
-    Assert-That ($manifest.files.Count -eq 13) 'Incorrect complete installer payload count'
+    Assert-That ($manifest.files.Count -eq 14) 'Incorrect complete installer payload count'
+    $adapter = Join-Path $package 'app/warp-ish-mcp.exe'
+    Assert-That ((Get-Item -LiteralPath $adapter).LinkType -ne 'HardLink') 'Package MCP adapter is not an independent file'
+    Assert-That ((Get-Content -LiteralPath $adapter -Raw).Trim() -eq 'fixture MCP adapter') 'Package MCP adapter did not come from its Cargo build'
+    $adapterEntry = @($manifest.files | Where-Object path -eq 'warp-ish-mcp.exe')
+    Assert-That ($adapterEntry.Count -eq 1 -and $adapterEntry[0].sha256 -eq (Get-FileHash -LiteralPath $adapter).Hash.ToLowerInvariant()) 'MCP adapter manifest binding failed'
+    $zip = [IO.Compression.ZipFile]::OpenRead((Join-Path $package $record.archive))
+    try {
+        Assert-That ($null -ne $zip.GetEntry('app/warp-ish-mcp.exe')) 'MCP adapter missing from ZIP'
+    } finally { $zip.Dispose() }
     $notices = Get-Content -LiteralPath (Join-Path $package 'app/resources/THIRD_PARTY_LICENSES.txt') -Raw
     $expectedNotices = @(
         'command-corrections (MIT)', 'Fixture corrections license text',
