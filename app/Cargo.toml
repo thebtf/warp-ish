@@ -351,6 +351,7 @@ zbus.workspace = true
 [target.'cfg(target_os = "windows")'.dependencies]
 bytemuck.workspace = true
 jsonschema = { workspace = true, default-features = false }
+warp_ish_mcp_transport = { path = "../crates/warp_ish_mcp_transport" }
 windows = { workspace = true, features = [
     "Wdk_Foundation",
     "Wdk_Storage_FileSystem",

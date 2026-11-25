@@ -1090,7 +1090,7 @@ fn validate_custom_uri(url: &Url) -> Result<UriHost> {
     Ok(host)
 }
 
-fn decode_uuid_hex(hex: &str) -> Option<Vec<u8>> {
+pub(crate) fn decode_uuid_hex(hex: &str) -> Option<Vec<u8>> {
     let hex = hex.as_bytes();
     if hex.len() != 32 {
         return None;

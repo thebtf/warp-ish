@@ -48,7 +48,7 @@ impl ScriptingSettingsPageView {
         });
         Self::update_local_control_mode_dropdown(local_control_mode_dropdown.clone(), ctx);
 
-        if FeatureFlag::WarpControlCli.is_enabled() {
+        if LocalControlSettings::scripting_available() {
             ctx.subscribe_to_model(&LocalControlSettings::handle(ctx), |view, _, _, ctx| {
                 Self::update_local_control_mode_dropdown(
                     view.local_control_mode_dropdown.clone(),
@@ -182,7 +182,7 @@ impl SettingsPageMeta for ScriptingSettingsPageView {
     }
 
     fn should_render(&self, _ctx: &AppContext) -> bool {
-        cfg!(not(target_family = "wasm")) && FeatureFlag::WarpControlCli.is_enabled()
+        cfg!(not(target_family = "wasm")) && LocalControlSettings::scripting_available()
     }
 
     fn update_filter(&mut self, query: &str, ctx: &mut ViewContext<Self>) -> MatchData {
@@ -270,7 +270,7 @@ impl SettingsWidget for LocalControlModeWidget {
     type View = ScriptingSettingsPageView;
 
     fn search_terms(&self) -> &str {
-        "scripting warp control automation warpctrl local cli scripts disabled enabled"
+        "scripting warp control automation warpctrl mcp local cli scripts disabled enabled"
     }
 
     fn render(
@@ -279,13 +279,24 @@ impl SettingsWidget for LocalControlModeWidget {
         appearance: &Appearance,
         app: &AppContext,
     ) -> Box<dyn Element> {
+        let (label, description) = if warp_core::channel::ChannelState::is_windows_warp_ish() {
+            (
+                "Local MCP control",
+                "Allow an MCP client running as your Windows user to control this workspace. Open a new pane after enabling.",
+            )
+        } else {
+            (
+                "warpctrl CLI",
+                "warpctrl allows for scripting Warp's UI. Use with care.",
+            )
+        };
         render_body_item::<ScriptingSettingsPageAction>(
-            "warpctrl CLI".into(),
+            label.into(),
             None,
             ToggleState::Enabled,
             appearance,
             ChildView::new(&view.local_control_mode_dropdown).finish(),
-            Some("warpctrl allows for scripting Warp's UI. Use with care.".to_owned()),
+            Some(description.to_owned()),
         )
     }
 }

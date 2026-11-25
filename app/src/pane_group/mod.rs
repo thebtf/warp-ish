@@ -3451,6 +3451,12 @@ impl PaneGroup {
     ) {
         add_session_focus_env_vars(&mut env_vars, terminal_session_uuid);
 
+        #[cfg(all(windows, feature = "local_fs"))]
+        if ChannelState::is_windows_warp_ish() {
+            let endpoint = crate::local_control::mcp_pipe_endpoint(ctx).unwrap_or_default();
+            env_vars.insert(warp_ish_mcp_transport::PIPE_ENV.into(), endpoint.into());
+        }
+
         cfg_if::cfg_if! {
             if #[cfg(feature = "remote_tty")] {
                 let terminal_init = RemoteTtyTerminalManager::create_model(

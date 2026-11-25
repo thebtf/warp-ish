@@ -12006,6 +12006,7 @@ dependencies = [
  "warp_editor",
  "warp_errors",
  "warp_files",
+ "warp_ish_mcp_transport",
  "warp_isolation_platform",
  "warp_logging",
  "warp_ripgrep",
@@ -12059,6 +12060,15 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+]
+
+[[package]]
+name = "warp-ish-mcp-adapter"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tokio",
+ "warp_ish_mcp_transport",
 ]
 
 [[package]]
@@ -12303,6 +12313,17 @@ dependencies = [
  "warp_util",
  "warpui_core",
  "watcher",
+]
+
+[[package]]
+name = "warp_ish_mcp_transport"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

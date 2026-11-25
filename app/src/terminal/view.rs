@@ -3552,7 +3552,32 @@ impl TerminalView {
         ctx.emit(Event::WriteBytesToPty { bytes: data.into() });
     }
 
+    #[cfg(windows)]
+    pub(crate) fn send_addressed_terminal_key(
+        &mut self,
+        key: &escape_sequences::KeystrokeWithDetails<'_>,
+        ctx: &mut ViewContext<Self>,
+    ) -> bool {
+        let bytes = {
+            let model = self.model.lock();
+            if !model.is_active_block_bootstrapped()
+                || !(model.is_alt_screen_active()
+                    || model
+                        .block_list()
+                        .active_block()
+                        .is_active_and_long_running())
+            {
+                return false;
+            }
+            key.to_pty_bytes(&*model)
+        };
+        bytes.is_some_and(|bytes| self.write_user_bytes_to_pty(bytes, ctx))
+    }
 
+    #[cfg(windows)]
+    pub(crate) fn mcp_active_block_id(&self) -> String {
+        self.model.lock().active_block_id().to_string()
+    }
 
     /// Ends the current line before writing the given bytes to the PTY.
     fn clear_line_editor_and_write_to_pty<B: Into<Cow<'static, [u8]>>>(

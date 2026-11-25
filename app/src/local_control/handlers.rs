@@ -5,6 +5,8 @@ use serde_json::json;
 pub(super) mod app_state;
 pub(super) mod close;
 pub(super) mod layout;
+#[cfg(windows)]
+pub(super) mod mcp;
 pub(super) mod metadata;
 pub(super) mod metadata_config;
 pub(super) mod settings_surfaces;
