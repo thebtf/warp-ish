@@ -34,6 +34,23 @@ use crate::workspace::WorkspaceAction;
 use crate::workspace::view::tests::{initialize_app as initialize_workspace_app, mock_workspace};
 
 #[test]
+fn omp_matches_blocklist_padding_only_in_windows_warp_ish() {
+    for command in ["omp", "OMP.EXE", r"D:\Bin\OMP.exe", "D:/Bin/Omp"] {
+        assert!(alt_screen_must_match_blocklist_padding(command, true));
+        assert!(!alt_screen_must_match_blocklist_padding(command, false));
+    }
+
+    for command in ["k9s", "lazygit"] {
+        assert!(alt_screen_must_match_blocklist_padding(command, true));
+        assert!(alt_screen_must_match_blocklist_padding(command, false));
+    }
+
+    for command in ["omp-wrapper.exe", "not-omp", "omp/other.exe"] {
+        assert!(!alt_screen_must_match_blocklist_padding(command, true));
+    }
+}
+
+#[test]
 fn ordinary_block_selection_moves_to_previous_shell_block() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
