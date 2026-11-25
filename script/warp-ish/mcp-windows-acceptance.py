@@ -54,10 +54,16 @@ def safe_directory(path):
 
 
 def remove_fixture(path):
-    if path.exists():
+    deadline = time.monotonic() + 8
+    while path.exists():
         safe_directory(path)
         require(path.resolve() == path, f"Unexpected fixture directory: {path}")
-        shutil.rmtree(path)
+        try:
+            shutil.rmtree(path)
+        except OSError as error:
+            if error.winerror not in (32, 33) or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.2)
 
 
 def remove_settings_key(path):
@@ -111,7 +117,8 @@ class Profile:
         (self.local / "data").mkdir(parents=True)
         (self.local / "config").mkdir()
         (self.local / "config/settings.toml").write_text(
-            "[general]\nrestore_session = true\n", encoding="utf-8")
+            "[general]\nrestore_session = true\nshow_warning_before_quitting = false\n"
+            "should_confirm_close_session = false\n", encoding="utf-8")
         # This is Windows SecureStorage's DPAPI file for the fresh profile's
         # LocalControlMode. Its contents use the same serialized value as Settings > Scripting.
         setting = self.local / "data" / f"dev.warpish.WarpIsh-{self.name}-LocalControlMode"
@@ -290,16 +297,20 @@ def start_peer(client, adapter, pane, output, prompt):
 def sample_idle(native, processes):
     before = [native.sample(pid) for pid in processes]
     start = time.monotonic()
-    time.sleep(2)
+    time.sleep(5)
     after = [native.sample(pid) for pid in processes]
     elapsed = time.monotonic() - start
+    cpu = [(post["cpu_seconds"] - pre["cpu_seconds"]) * 100 / elapsed
+           for pre, post in zip(before, after)]
     return {
         "private_bytes": sum(value["private_bytes"] for value in after),
         "handles": sum(value["handles"] for value in after),
-        "idle_cpu_percent_of_one_core": (
-            sum(post["cpu_seconds"] - pre["cpu_seconds"] for pre, post in zip(before, after))
-            * 100 / elapsed
-        ),
+        "idle_cpu_percent_of_one_core": sum(cpu),
+        "gui": {"private_bytes": after[0]["private_bytes"], "handles": after[0]["handles"],
+                "idle_cpu_percent_of_one_core": cpu[0]},
+        "adapters": {"private_bytes": sum(value["private_bytes"] for value in after[1:]),
+                     "handles": sum(value["handles"] for value in after[1:]),
+                     "idle_cpu_percent_of_one_core": sum(cpu[1:])},
         "sample_seconds": elapsed,
     }
 
@@ -329,16 +340,19 @@ def measure(native, gui, adapter, env, count):
 
 
 def run(native, desktop, gui, adapter, first, second, report):
-    app = desktop.start(gui, [], first.environment(), first.scratch)
-    await_result(lambda: desktop.windows(app), "normal GUI startup")
+    normal = desktop.start(gui, [], first.environment(), first.scratch)
+    await_result(lambda: desktop.windows(normal), "normal GUI startup")
+    desktop.stop(normal)
     report["normal_startup"] = True
     # An explicit profile launch URI opens windows without touching the global selector.
-    desktop.start(gui, [f"warp-ish://launch/{CONFIG}"], first.environment(), first.scratch)
-    other = desktop.start(gui, [f"warp-ish://launch/{CONFIG}"], second.environment(), second.scratch)
+    uri = f"warp-ish://launch/{CONFIG}"
+    app = desktop.start(gui, [uri], first.environment(), first.scratch)
+    other = desktop.start(gui, [uri], second.environment(), second.scratch)
     a, a_sibling = first.pane_environments()
     b, = second.pane_environments()
     require(a[PIPE_ENV] != b[PIPE_ENV], "Distinct profiles exposed the same pipe")
-    baseline = sample_idle(native, [app.pid])
+    require(len(desktop.windows(app)) >= 2 and desktop.windows(other),
+            "Launch processes do not own their expected fixture windows")
     with (started_client(adapter, a) as primary, started_client(adapter, a_sibling) as sibling,
           started_client(adapter, b) as separate):
         names = {tool["name"] for tool in primary.rpc("tools/list", {})["tools"]}
@@ -396,8 +410,10 @@ def run(native, desktop, gui, adapter, first, second, report):
                 "A peer action changed the origin or a different profile")
         report["addressed_peer_lifecycle"] = True
         report["stale_ids_rejected"] = True
+    # Let the initial windows and terminated fixture commands settle before measuring.
+    time.sleep(15)
     report["measurements"] = {
-        "gui_baseline": baseline, "one_client": measure(native, app, adapter, a, 1),
+        "gui_baseline": sample_idle(native, [app.pid]), "one_client": measure(native, app, adapter, a, 1),
         "forty_clients": measure(native, app, adapter, a, 40),
     }
     marker_paths = [*first.markers, peer_out / "ready.json", witness_out / "ready.json"]

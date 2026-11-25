@@ -3,6 +3,7 @@
 import ctypes as ct
 from ctypes import wintypes as wt
 import subprocess
+import time
 
 
 kernel = ct.WinDLL("kernel32", use_last_error=True)
@@ -63,6 +64,8 @@ enumerate_windows = bind(user, "EnumDesktopWindows", wt.BOOL, wt.HANDLE,
                          window_callback, wt.LPARAM)
 window_pid = bind(user, "GetWindowThreadProcessId", wt.DWORD, wt.HWND, ct.POINTER(wt.DWORD))
 window_visible = bind(user, "IsWindowVisible", wt.BOOL, wt.HWND)
+window_class = bind(user, "GetClassNameW", ct.c_int, wt.HWND, wt.LPWSTR, ct.c_int)
+window_title = bind(user, "GetWindowTextW", ct.c_int, wt.HWND, wt.LPWSTR, ct.c_int)
 post_close = bind(user, "PostMessageW", wt.BOOL, wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM)
 create_job = bind(kernel, "CreateJobObjectW", wt.HANDLE, ct.c_void_p, wt.LPCWSTR)
 set_job = bind(kernel, "SetInformationJobObject", wt.BOOL, wt.HANDLE, ct.c_int,
@@ -128,25 +131,59 @@ class Desktop:
         self.processes.append(process)
         return process
 
-    def windows(self, process):
+    def windows(self, process, include_helpers=False):
         windows = []
 
         @window_callback
         def record(hwnd, _):
             owner = wt.DWORD()
             window_pid(hwnd, ct.byref(owner))
-            if owner.value == process.pid and window_visible(hwnd):
+            kind = ct.create_unicode_buffer(256)
+            if (owner.value == process.pid and window_visible(hwnd)
+                    and (include_helpers or (window_class(hwnd, kind, len(kind))
+                                             and kind.value == "Window Class"))):
                 windows.append(hwnd)
             return True
 
-        require(enumerate_windows(self.handle, record, 0))
+        # Windows reports FALSE without setting LastError while there are no
+        # top-level windows on this desktop yet.
+        ct.set_last_error(0)
+        if not enumerate_windows(self.handle, record, 0):
+            error = ct.get_last_error()
+            if error:
+                raise ct.WinError(error)
         return windows
 
+    def describe_windows(self, process):
+        descriptions = []
+        for hwnd in self.windows(process, include_helpers=True):
+            kind = ct.create_unicode_buffer(256)
+            title = ct.create_unicode_buffer(256)
+            window_class(hwnd, kind, len(kind))
+            window_title(hwnd, title, len(title))
+            descriptions.append({"hwnd": hwnd, "class": kind.value, "title": title.value})
+        return descriptions
+
     def stop(self, process):
-        for window in self.windows(process):
-            require(post_close(window, 0x0010, 0, 0))  # WM_CLOSE
-        if wait(process.handle, 10_000) != 0:
-            raise RuntimeError(f"test GUI {process.pid} did not exit normally")
+        deadline = time.monotonic() + 15
+        requested = set()
+        while time.monotonic() < deadline:
+            outcome = wait(process.handle, 100)
+            if outcome == 0:
+                return
+            if outcome != 258:  # WAIT_TIMEOUT
+                raise ct.WinError(ct.get_last_error())
+            windows = self.windows(process)
+            if requested.intersection(windows) or not windows:
+                continue
+            window = windows[-1]
+            if not post_close(window, 0x0010, 0, 0):  # WM_CLOSE
+                error = ct.get_last_error()
+                if error != 1400:  # ERROR_INVALID_WINDOW_HANDLE: it closed meanwhile.
+                    raise ct.WinError(error)
+            requested.add(window)
+        raise RuntimeError(f"test GUI {process.pid} did not exit normally; "
+                           f"requested {sorted(requested)}, remaining {self.describe_windows(process)}")
 
     def close(self):
         if self.job:
