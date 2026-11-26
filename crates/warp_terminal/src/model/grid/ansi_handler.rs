@@ -36,9 +36,9 @@ use crate::model::grid::indexing::IndexRegion as _;
 use crate::model::grid::{Dimensions as _, cell, grapheme_cursor};
 use crate::model::image_map::{ImagePlacementData, ImageType, StoredImageMetadata};
 use crate::model::index::{Point, VisibleRow};
-use crate::model::iterm_image::{ITermImage, ITermImageDimensionUnit};
+use crate::model::iterm_image::{ITermImage, ITermImageDimensionUnit, InlineImagePlacement};
 use crate::model::kitty::{
-    CursorMovementPolicy, KittyAction, KittyError, KittyResponse, StorageError,
+    CursorMovementPolicy, DisplayStoredImage, KittyAction, KittyError, KittyResponse, StorageError,
 };
 use crate::model::selection::ScrollDelta;
 use crate::model::{KeyboardModes, KeyboardModesApplyBehavior, ObfuscateSecrets};
@@ -393,7 +393,12 @@ impl ansi::Handler for GridHandler {
         match intermediate {
             None => {
                 log::trace!("Reporting primary device attributes");
-                let _ = writer.write_all(b"\x1b[?62c");
+                let attributes: &[u8] = if FeatureFlag::ITermImages.is_enabled() {
+                    b"\x1b[?62;4c"
+                } else {
+                    b"\x1b[?62c"
+                };
+                let _ = writer.write_all(attributes);
             }
             Some('>') => {
                 log::trace!("Reporting secondary device attributes");
@@ -1226,6 +1231,14 @@ impl ansi::Handler for GridHandler {
         let _ = write!(writer, "\x1b[4;{height};{width}t");
     }
 
+    fn report_sixel_geometry<W: std::io::Write>(&mut self, writer: &mut W) {
+        let width =
+            (self.ansi_handler_state.cell_width * self.columns()).min(ansi::sixel::MAX_WIDTH);
+        let height = (self.ansi_handler_state.cell_height * self.visible_rows())
+            .min(ansi::sixel::MAX_HEIGHT);
+        let _ = write!(writer, "\x1b[?2;0;{width};{height}S");
+    }
+
     fn text_area_size_chars<W: std::io::Write>(&mut self, writer: &mut W) {
         let _ = write!(writer, "\x1b[8;{};{}t", self.visible_rows(), self.columns());
     }
@@ -1282,7 +1295,7 @@ impl ansi::Handler for GridHandler {
         }
     }
 
-    fn handle_completed_iterm_image(&mut self, image: ITermImage) {
+    fn handle_completed_iterm_image(&mut self, mut image: ITermImage) {
         if !FeatureFlag::ITermImages.is_enabled() {
             return;
         }
@@ -1311,7 +1324,7 @@ impl ansi::Handler for GridHandler {
         if let Some((width, width_units)) = image.metadata.desired_width {
             desired_width_px = match width_units {
                 ITermImageDimensionUnit::Cell => {
-                    ((self.ansi_handler_state.cell_width as u32) * width) as f32
+                    self.ansi_handler_state.cell_width as f32 * width as f32
                 }
                 ITermImageDimensionUnit::Percent => {
                     (self.columns() as f32)
@@ -1326,7 +1339,7 @@ impl ansi::Handler for GridHandler {
         if let Some((height, height_units)) = image.metadata.desired_height {
             desired_height_px = match height_units {
                 ITermImageDimensionUnit::Cell => {
-                    ((self.ansi_handler_state.cell_height as u32) * height) as f32
+                    self.ansi_handler_state.cell_height as f32 * height as f32
                 }
                 ITermImageDimensionUnit::Percent => {
                     self.ansi_handler_state.pane_size.y() * (height as f32) * 0.01
@@ -1335,18 +1348,57 @@ impl ansi::Handler for GridHandler {
             }
         }
 
+        // An omitted side (or "auto") follows the other side's scale.
+        match (image.metadata.desired_width, image.metadata.desired_height) {
+            (Some(_), None) => {
+                desired_height_px = desired_width_px * image.metadata.image_size.y()
+                    / image.metadata.image_size.x();
+            }
+            (None, Some(_)) => {
+                desired_width_px = desired_height_px * image.metadata.image_size.x()
+                    / image.metadata.image_size.y();
+            }
+            _ => (),
+        }
         // The largest iTerm will render an image is the width of the terminal when it receives the image.
         // This logic ensures that when an image's size is calculated based on the current state of the terminal,
         // it will not be rendered partially off the right of the screen. At max, it will occupy the columns from the
         // cursor to the right edge.
-        let max_width = (self.columns() as u32 - self.cursor_point().col as u32)
-            * (self.ansi_handler_state.cell_width as u32);
+        let anchor = if image.placement == InlineImagePlacement::SixelViewport {
+            Point::new(self.history_size(), 0)
+        } else {
+            self.cursor_point()
+        };
+        let max_width = (self.columns() as u32)
+            .saturating_sub(anchor.col as u32)
+            .saturating_mul(self.ansi_handler_state.cell_width as u32);
 
-        let desired_width_px = min(desired_width_px as u32, max_width);
-
-        let max_height = MAX_IMAGE_CELL_HEIGHT * self.ansi_handler_state.cell_height as u32;
+        let full_size = (desired_width_px as u32, desired_height_px as u32);
+        let desired_width_px = min(full_size.0, max_width);
+        let max_height = match image.placement {
+            InlineImagePlacement::ITerm => {
+                MAX_IMAGE_CELL_HEIGHT * self.ansi_handler_state.cell_height as u32
+            }
+            InlineImagePlacement::SixelViewport => {
+                (self.visible_rows() * self.ansi_handler_state.cell_height) as u32
+            }
+            _ => ansi::sixel::MAX_HEIGHT as u32,
+        };
 
         let desired_height_px = min(desired_height_px as u32, max_height);
+        if desired_width_px == 0 || desired_height_px == 0 {
+            return;
+        }
+        if image.placement != InlineImagePlacement::ITerm
+            && ansi::sixel::clip_raster(
+                &mut image,
+                full_size,
+                (desired_width_px, desired_height_px),
+            )
+            .is_none()
+        {
+            return;
+        }
 
         let (width_px, height_px) = resize_dimensions(
             image.metadata.image_size.x() as u32,
@@ -1397,6 +1449,7 @@ impl ansi::Handler for GridHandler {
             image_id,
             placement_id,
             ImagePlacementData {
+                source: Default::default(),
                 z_index: 0,
                 height_cells,
                 image_size,
@@ -1406,17 +1459,39 @@ impl ansi::Handler for GridHandler {
         self.images.place(
             image_id,
             placement_id,
-            AbsolutePoint::from_point(self.cursor_point(), self),
+            AbsolutePoint::from_point(anchor, self),
             ImageType::ITerm,
             self.num_lines_truncated(),
         );
 
-        // Create the whitespace to fit the image on.
-        for _ in 0..scroll_up_cells - 1 {
-            self.newline();
+        if image.placement == InlineImagePlacement::SixelViewport {
+            return;
+        }
+        let num_cols = self.columns();
+        if image.placement != InlineImagePlacement::ITerm {
+            // XTerm leaves the cursor on the last image row, in the original
+            // column by default. With DECSET 8452 it advances past the image.
+            for _ in 1..scroll_up_cells {
+                self.linefeed();
+            }
+            let mut col = anchor.col;
+            if image.placement == InlineImagePlacement::SixelRight {
+                col += scroll_right_cells;
+                if col >= num_cols {
+                    self.linefeed();
+                    col = 0;
+                }
+            }
+            self.update_cursor(|cursor| {
+                cursor.point.col = col;
+                cursor.input_needs_wrap = false;
+            });
+            return;
         }
 
-        let num_cols = self.columns();
+        for _ in 0..scroll_up_cells.saturating_sub(1) {
+            self.newline();
+        }
 
         // Move the cursor to the same row but after the image.
         self.move_cursor_forward(|cursor| {
@@ -1802,226 +1877,138 @@ impl GridHandler {
             return Err(KittyError::KittyFeatureDisabled);
         }
 
-        match action {
-            KittyAction::StoreOnly(action) => {
-                let metadata = match metadata.get(&action.image_id) {
-                    Some(StoredImageMetadata::Kitty(metadata)) => metadata,
-                    Some(_) | None => {
-                        return Err(StorageError::UnknownId {
-                            id: action.image_id,
-                        }
-                        .into());
-                    }
-                };
+        let (upload, placement) = match action {
+            KittyAction::StoreOnly(action) => (Some((action.image_id, action.image)), None),
+            KittyAction::StoreAndDisplay(action) => (
+                Some((action.image_id, action.image)),
+                Some(DisplayStoredImage {
+                    image_id: action.image_id,
+                    placement_id: action.placement_id,
+                    placement_data: action.placement_data,
+                }),
+            ),
+            KittyAction::DisplayStoredImage(action) => (None, Some(action)),
+            KittyAction::QuerySupport(_) | KittyAction::Delete { .. } => return Ok(()),
+        };
 
-                if metadata.image_size.x() == 0.0 || metadata.image_size.y() == 0.0 {
-                    return Ok(());
-                }
-
-                self.ansi_handler_state
-                    .event_proxy
-                    .send_terminal_event(Event::ImageReceived {
-                        image_id: action.image_id,
-                        image_data: action.image.data,
-                        image_protocol: ImageProtocol::Kitty,
-                    });
+        if let Some((image_id, image)) = upload {
+            if !matches!(metadata.get(&image_id), Some(StoredImageMetadata::Kitty(_))) {
+                return Err(StorageError::UnknownId { id: image_id }.into());
             }
-            KittyAction::StoreAndDisplay(action) => {
-                let metadata = match metadata.get(&action.image_id) {
-                    Some(StoredImageMetadata::Kitty(metadata)) => metadata,
-                    Some(_) | None => {
-                        return Err(StorageError::UnknownId {
-                            id: action.image_id,
-                        }
-                        .into());
-                    }
-                };
-
-                if metadata.image_size.x() == 0.0 || metadata.image_size.y() == 0.0 {
-                    return Ok(());
-                }
-
-                if let Some(0) = action.placement_data.cols {
-                    return Ok(());
-                }
-
-                if let Some(0) = action.placement_data.rows {
-                    return Ok(());
-                }
-
-                let max_width =
-                    (self.columns() - self.cursor_point().col) * self.ansi_handler_state.cell_width;
-
-                let max_height =
-                    MAX_IMAGE_CELL_HEIGHT as usize * self.ansi_handler_state.cell_height;
-
-                let desired_dimensions = action.placement_data.get_desired_dimensions(
-                    metadata.image_size,
-                    self.ansi_handler_state.cell_height,
-                    self.ansi_handler_state.cell_width,
-                    max_width,
-                    max_height,
-                );
-
-                let (width_px, height_px) = resize_dimensions(
-                    metadata.image_size.x() as u32,
-                    metadata.image_size.y() as u32,
-                    desired_dimensions.x() as u32,
-                    desired_dimensions.y() as u32,
-                    FitType::Stretch,
-                );
-
-                let image_size = Vector2F::new(width_px as f32, height_px as f32);
-
-                // Convert the dimension in pixels to cells. We want to round up if this doesn't perfectly fit within an amount of cells.
-                let height_cells = (height_px as f32 / (self.ansi_handler_state.cell_height as f32))
-                    .ceil() as usize;
-                let width_cells =
-                    (width_px as f32 / (self.ansi_handler_state.cell_width as f32)).ceil() as usize;
-
-                self.ansi_handler_state
-                    .event_proxy
-                    .send_terminal_event(Event::ImageReceived {
-                        image_id: action.image_id,
-                        image_data: action.image.data,
-                        image_protocol: ImageProtocol::Kitty,
-                    });
-
-                self.images.add_image_placement_data(
-                    action.image_id,
-                    action.placement_id,
-                    ImagePlacementData {
-                        z_index: action.placement_data.z_index,
-                        height_cells,
-                        image_size,
-                    },
-                );
-
-                self.images.place(
-                    action.image_id,
-                    action.placement_id,
-                    AbsolutePoint::from_point(self.cursor_point(), self),
-                    ImageType::Kitty,
-                    self.num_lines_truncated(),
-                );
-
-                if !matches!(
-                    action.placement_data.cursor_movement_policy,
-                    CursorMovementPolicy::MoveCursor
-                ) {
-                    return Ok(());
-                }
-
-                // Create the whitespace to fit the image on.
-                for _ in 0..height_cells - 1 {
-                    self.newline();
-                }
-
-                let num_cols = self.columns();
-
-                // Move the cursor to the same row but after the image.
-                self.move_cursor_forward(|cursor| {
-                    if cursor.point.col + width_cells < num_cols {
-                        cursor.point.col += width_cells;
-                    } else {
-                        cursor.input_needs_wrap = true;
-                    }
+            self.ansi_handler_state
+                .event_proxy
+                .send_terminal_event(Event::ImageReceived {
+                    image_id,
+                    image_data: image.data,
+                    image_protocol: ImageProtocol::Kitty,
                 });
+        }
+        let Some(action) = placement else {
+            return Ok(());
+        };
+        let metadata = match metadata.get(&action.image_id) {
+            Some(StoredImageMetadata::Kitty(metadata)) => metadata,
+            Some(_) | None => {
+                return Err(StorageError::UnknownId {
+                    id: action.image_id,
+                }
+                .into());
             }
-            KittyAction::DisplayStoredImage(action) => {
-                let metadata = match metadata.get(&action.image_id) {
-                    Some(StoredImageMetadata::Kitty(metadata)) => metadata,
-                    Some(_) | None => {
-                        return Err(StorageError::UnknownId {
-                            id: action.image_id,
-                        }
-                        .into());
-                    }
-                };
+        };
 
-                if let Some(0) = action.placement_data.cols {
-                    return Ok(());
-                }
-
-                if let Some(0) = action.placement_data.rows {
-                    return Ok(());
-                }
-
-                let max_width =
-                    (self.columns() - self.cursor_point().col) * self.ansi_handler_state.cell_width;
-
-                let max_height =
-                    MAX_IMAGE_CELL_HEIGHT as usize * self.ansi_handler_state.cell_height;
-
-                let desired_dimensions = action.placement_data.get_desired_dimensions(
-                    metadata.image_size,
-                    self.ansi_handler_state.cell_height,
-                    self.ansi_handler_state.cell_width,
-                    max_width,
-                    max_height,
-                );
-
-                let (width_px, height_px) = resize_dimensions(
-                    metadata.image_size.x() as u32,
-                    metadata.image_size.y() as u32,
-                    desired_dimensions.x() as u32,
-                    desired_dimensions.y() as u32,
-                    FitType::Stretch,
-                );
-
-                let image_size = Vector2F::new(width_px as f32, height_px as f32);
-
-                // Convert the dimension in pixels to cells. We want to round up if this doesn't perfectly fit within an amount of cells.
-                let height_cells = (height_px as f32 / (self.ansi_handler_state.cell_height as f32))
-                    .ceil() as usize;
-                let width_cells =
-                    (width_px as f32 / (self.ansi_handler_state.cell_width as f32)).ceil() as usize;
-
-                self.images.add_image_placement_data(
-                    action.image_id,
-                    action.placement_id,
-                    ImagePlacementData {
-                        z_index: action.placement_data.z_index,
-                        height_cells,
-                        image_size,
-                    },
-                );
-
-                self.images.place(
-                    action.image_id,
-                    action.placement_id,
-                    AbsolutePoint::from_point(self.cursor_point(), self),
-                    ImageType::Kitty,
-                    self.num_lines_truncated(),
-                );
-
-                if !matches!(
-                    action.placement_data.cursor_movement_policy,
-                    CursorMovementPolicy::MoveCursor
-                ) {
-                    return Ok(());
-                }
-
-                // Create the whitespace to fit the image on.
-                for _ in 0..height_cells - 1 {
-                    self.newline();
-                }
-
-                let num_cols = self.columns();
-
-                // Move the cursor to the same row but after the image.
-                self.move_cursor_forward(|cursor| {
-                    if cursor.point.col + width_cells < num_cols {
-                        cursor.point.col += width_cells;
-                    } else {
-                        cursor.input_needs_wrap = true;
-                    }
-                });
-            }
-            KittyAction::QuerySupport(_) => {}
-            KittyAction::Delete { .. } => {}
+        if let Some(0) = action.placement_data.cols {
+            return Ok(());
         }
 
+        if let Some(0) = action.placement_data.rows {
+            return Ok(());
+        }
+
+        let max_width = self.columns().saturating_sub(self.cursor_point().col)
+            * self.ansi_handler_state.cell_width;
+        let max_height = MAX_IMAGE_CELL_HEIGHT as usize * self.ansi_handler_state.cell_height;
+        if max_width == 0 || max_height == 0 {
+            return Ok(());
+        }
+
+        let Some(source) = action.placement_data.source.resolve(metadata.image_size) else {
+            return Ok(());
+        };
+        let desired_dimensions = action.placement_data.get_desired_dimensions(
+            source.size(),
+            self.ansi_handler_state.cell_height,
+            self.ansi_handler_state.cell_width,
+            max_width,
+            max_height,
+        );
+
+        let (width_px, height_px) = resize_dimensions(
+            source.width() as u32,
+            source.height() as u32,
+            desired_dimensions.x() as u32,
+            desired_dimensions.y() as u32,
+            FitType::Stretch,
+        );
+
+        let image_size = Vector2F::new(width_px as f32, height_px as f32);
+
+        // Convert the dimension in pixels to cells. We want to round up if this doesn't perfectly fit within an amount of cells.
+        let height_cells =
+            (height_px as f32 / (self.ansi_handler_state.cell_height as f32)).ceil() as usize;
+        let width_cells =
+            (width_px as f32 / (self.ansi_handler_state.cell_width as f32)).ceil() as usize;
+
+        if action.placement_data.unicode_placeholder {
+            self.add_virtual_image_placement(
+                action.image_id,
+                action.placement_id,
+                &action.placement_data,
+                source.size(),
+            );
+            return Ok(());
+        }
+
+        self.images.add_image_placement_data(
+            action.image_id,
+            action.placement_id,
+            ImagePlacementData {
+                source: action.placement_data.source,
+                z_index: action.placement_data.z_index,
+                height_cells,
+                image_size,
+            },
+        );
+
+        self.images.place(
+            action.image_id,
+            action.placement_id,
+            AbsolutePoint::from_point(self.cursor_point(), self),
+            ImageType::Kitty,
+            self.num_lines_truncated(),
+        );
+
+        if !matches!(
+            action.placement_data.cursor_movement_policy,
+            CursorMovementPolicy::MoveCursor
+        ) {
+            return Ok(());
+        }
+
+        // Create the whitespace to fit the image on.
+        for _ in 1..height_cells {
+            self.newline();
+        }
+
+        let num_cols = self.columns();
+
+        // Move the cursor to the same row but after the image.
+        self.move_cursor_forward(|cursor| {
+            if cursor.point.col + width_cells < num_cols {
+                cursor.point.col += width_cells;
+            } else {
+                cursor.input_needs_wrap = true;
+            }
+        });
         Ok(())
     }
 }

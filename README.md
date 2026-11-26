@@ -20,6 +20,7 @@ The imported panes start fresh shells. Press Up at a prompt to find your command
 
 ## What you can do
 
+- Display images directly in terminal output with Kitty graphics, iTerm2 inline images (OSC 1337), and SIXEL. For example, run `chafa -f sixels photo.png` with Chafa installed. Kitty accepts image data from the program's output stream. This feature ships in `0.2.0-rc.1`, based on Warp `master @ 1c7fda1191`.
 - Use PowerShell in windows, tabs, and split panes with command and output blocks, multiline input, local completion, search, and themes.
 - Restore your terminal layout and working directories. Restored panes start fresh shells and wait for your commands.
 - Run OMP, SSH, Git, and other command-line tools. Resizing a pane with OMP running directly as `omp` or `omp.exe` avoids the repeated screen switching that caused flicker.

@@ -120,6 +120,7 @@ pub enum Event {
         image_data: Vec<u8>,
         image_protocol: ImageProtocol,
     },
+    ImageDeleted(u32),
     BootstrapPrecmdDone,
     /// A pluggable notification triggered via OSC 9 or OSC 777 escape sequences.
     /// External programs can use this to trigger notifications in Warp.
@@ -453,6 +454,7 @@ impl Debug for Event {
             Event::ImageReceived { image_id, .. } => {
                 write!(f, "ImageReceived(image_id: {image_id})")
             }
+            Event::ImageDeleted(id) => write!(f, "ImageDeleted(image_id: {id})"),
             Event::BootstrapPrecmdDone => write!(f, "BootstrapPrecmdDone"),
             Event::PluggableNotification { .. } => write!(f, "PluggableNotification"),
         }

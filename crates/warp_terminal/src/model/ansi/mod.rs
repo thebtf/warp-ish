@@ -13,11 +13,13 @@ mod ansi_c_decoder;
 pub mod control_sequence_parameters;
 mod dcs_hooks;
 mod handler;
+pub(crate) mod sixel;
 
 use std::fmt::Write;
 use std::time::Duration;
 use std::{io, str};
 
+use crate::model::image_limits::MAX_TERMINAL_IMAGE_BYTES;
 use ansi_c_decoder::*;
 use byte_unit::{Byte, Unit as ByteUnit};
 pub use control_sequence_parameters::*;
@@ -28,6 +30,7 @@ use instant::Instant;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use log::debug;
+use sixel::{SixelFrame, SixelState};
 use vte::{Params, Parser as VteParser, Perform as VtePerform};
 use warp_core::features::FeatureFlag;
 use warp_core::{safe_debug, safe_error, safe_warn};
@@ -222,22 +225,15 @@ fn parse_number(input: &[u8]) -> Option<u8> {
 }
 
 #[derive(Debug, Default)]
-struct DcsData {
-    data: Vec<u8>,
-    intermediates: Vec<u8>,
-    final_char: char,
-}
-
-impl DcsData {
-    pub fn push(&mut self, byte: u8) {
-        self.data.push(byte);
-    }
-
-    pub fn on_hook(&mut self, intermediates: &[u8], final_char: char) {
-        self.intermediates = Vec::from(intermediates);
-        self.final_char = final_char;
-        self.data.clear();
-    }
+enum DcsData {
+    #[default]
+    Ignored,
+    ShellHook {
+        marker: char,
+        data: Vec<u8>,
+    },
+    Sixel(SixelFrame),
+    SixelAwaitingSt(SixelFrame),
 }
 
 /// State to keep track of Synchronized Output.
@@ -361,6 +357,7 @@ impl<'a> ProcessorInput<'a> {
 struct ProcessorState {
     preceding_char: Option<char>,
     dcs_data: DcsData,
+    sixel: SixelState,
     apc_data: Vec<u8>,
     sync_output: SyncOutputState,
 }
@@ -369,6 +366,50 @@ struct ProcessorState {
 pub struct Processor {
     state: ProcessorState,
     parser: VteParser,
+    osc_budget: OscBudget,
+}
+
+/// VTE accumulates OSC bytes internally before it invokes our handler. Count them on
+/// ingress so even an unfinished inline transfer has a bounded lifetime and size.
+#[derive(Clone, Copy, Default)]
+enum OscBudget {
+    #[default]
+    Idle,
+    Escape,
+    Receiving(usize),
+    Discarding,
+}
+
+enum OscInput {
+    Feed,
+    Reset,
+    Skip,
+}
+
+impl OscBudget {
+    fn observe(&mut self, byte: u8, limit: usize) -> OscInput {
+        match (*self, byte) {
+            (_, 0x1b) => *self = Self::Escape,
+            (_, 0x18 | 0x1a) => *self = Self::Idle,
+            (Self::Escape, b']') => *self = Self::Receiving(0),
+            (Self::Escape, 0x20..=0x7e) => *self = Self::Idle,
+            (Self::Receiving(_) | Self::Discarding, 0x07) => {
+                let discarded = matches!(self, Self::Discarding);
+                *self = Self::Idle;
+                if discarded {
+                    return OscInput::Skip;
+                }
+            }
+            (Self::Receiving(count), _) if count == limit => {
+                *self = Self::Discarding;
+                return OscInput::Reset;
+            }
+            (Self::Receiving(count), _) => *self = Self::Receiving(count + 1),
+            (Self::Discarding, _) => return OscInput::Skip,
+            _ => (),
+        }
+        OscInput::Feed
+    }
 }
 
 impl Default for Processor {
@@ -377,10 +418,12 @@ impl Default for Processor {
             state: ProcessorState {
                 preceding_char: None,
                 dcs_data: DcsData::default(),
+                sixel: SixelState::default(),
                 apc_data: vec![],
                 sync_output: SyncOutputState::Inactive,
             },
             parser: VteParser::new(),
+            osc_budget: OscBudget::Idle,
         }
     }
 }
@@ -454,7 +497,27 @@ impl Processor {
             // improve performance: while the performer ctor is cheap, there is still a non-zero cost
             // that adds up if we do this per-byte. Implementing this is a challenge due to the fact
             // that the performer requires a mutable reference to [`ProcessorState`].
-            let mut performer = Performer::new(&mut self.state, handler, writer);
+            const MAX_OSC_BYTES: usize =
+                crate::model::image_limits::MAX_TERMINAL_IMAGE_BYTES.div_ceil(3) * 4 + 4096;
+            match self.osc_budget.observe(byte, MAX_OSC_BYTES) {
+                OscInput::Reset => {
+                    handler.cancel_iterm_image_receiving();
+                    self.parser = VteParser::new();
+                    return;
+                }
+                OscInput::Skip => return,
+                OscInput::Feed => (),
+            }
+            let mut performer = Performer::new(&mut self.state, handler, writer, byte);
+            // VTE unhooks on ESC, before the following byte distinguishes ST from
+            // the start of an unrelated escape sequence.
+            if matches!(performer.state.dcs_data, DcsData::SixelAwaitingSt(_))
+                && let DcsData::SixelAwaitingSt(frame) =
+                    std::mem::take(&mut performer.state.dcs_data)
+                && byte == b'\\'
+            {
+                performer.display_sixel(frame);
+            }
             self.parser.advance(&mut performer, byte);
             return;
         };
@@ -535,6 +598,7 @@ struct Performer<'a, H: Handler, W: io::Write> {
     state: &'a mut ProcessorState,
     handler: &'a mut H,
     writer: &'a mut W,
+    current_byte: u8,
 }
 
 impl<'a, H: Handler + 'a, W: io::Write> Performer<'a, H, W> {
@@ -544,11 +608,19 @@ impl<'a, H: Handler + 'a, W: io::Write> Performer<'a, H, W> {
         state: &'b mut ProcessorState,
         handler: &'b mut H,
         writer: &'b mut W,
+        current_byte: u8,
     ) -> Performer<'b, H, W> {
         Performer {
             state,
             handler,
             writer,
+            current_byte,
+        }
+    }
+
+    fn display_sixel(&mut self, frame: SixelFrame) {
+        if let Some(image) = self.state.sixel.decode(frame) {
+            self.handler.handle_completed_iterm_image(image);
         }
     }
 
@@ -759,20 +831,50 @@ where
     }
 
     #[inline]
-    fn hook(&mut self, _params: &Params, intermediates: &[u8], _ignore: bool, c: char) {
-        self.state.dcs_data.on_hook(intermediates, c);
+    fn hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, c: char) {
+        self.state.dcs_data = match c {
+            'q' if !ignore && intermediates.is_empty() && FeatureFlag::ITermImages.is_enabled() => {
+                let mut values = params.iter().map(|param| param[0]);
+                DcsData::Sixel(SixelFrame {
+                    params: [values.next(), values.next(), values.next()],
+                    payload: Vec::new(),
+                })
+            }
+            HEX_ENCODED_JSON_MARKER | UNENCODED_JSON_MARKER => DcsData::ShellHook {
+                marker: c,
+                data: Vec::new(),
+            },
+            _ => DcsData::Ignored,
+        };
     }
 
     #[inline]
     fn put(&mut self, byte: u8) {
-        self.state.dcs_data.push(byte);
+        match &mut self.state.dcs_data {
+            DcsData::ShellHook { data, .. } => data.push(byte),
+            // Embedded C0/DEL bytes do not interrupt SIXEL numeric parameters.
+            DcsData::Sixel(_) if byte < 0x20 || byte == 0x7f => {}
+            DcsData::Sixel(frame) if frame.payload.len() < MAX_TERMINAL_IMAGE_BYTES => {
+                frame.payload.push(byte)
+            }
+            DcsData::Sixel(_) => self.state.dcs_data = DcsData::Ignored,
+            DcsData::Ignored | DcsData::SixelAwaitingSt(_) => {}
+        }
     }
 
     #[inline]
     fn unhook(&mut self) {
-        match self.state.dcs_data.final_char {
-            HEX_ENCODED_JSON_MARKER => {
-                let dcs_data_str = String::from_utf8_lossy(&self.state.dcs_data.data);
+        match std::mem::take(&mut self.state.dcs_data) {
+            DcsData::Sixel(frame) => match self.current_byte {
+                0x9c => self.display_sixel(frame),
+                0x1b => self.state.dcs_data = DcsData::SixelAwaitingSt(frame),
+                _ => {} // CAN, SUB or an interrupted DCS.
+            },
+            DcsData::ShellHook {
+                marker: HEX_ENCODED_JSON_MARKER,
+                data,
+            } => {
+                let dcs_data_str = String::from_utf8_lossy(&data);
                 safe_debug!(
                     safe: ("Received DCS string"),
                     full: ("Received DCS string with JSON payload: {:?}", dcs_data_str)
@@ -780,8 +882,11 @@ where
                 let decoded_data = hex::decode(&*dcs_data_str);
                 self.handle_decoded_data(decoded_data);
             }
-            UNENCODED_JSON_MARKER => {
-                let dcs_data_str = String::from_utf8_lossy(&self.state.dcs_data.data);
+            DcsData::ShellHook {
+                marker: UNENCODED_JSON_MARKER,
+                data,
+            } => {
+                let dcs_data_str = String::from_utf8_lossy(&data);
                 let hook = serde_json::from_str::<DProtoHook>(&dcs_data_str);
                 self.handle_unencoded_hook(hook)
             }
@@ -1361,6 +1466,9 @@ where
             }
             ('h', intermediate) => {
                 for param in params_iter.map(|param| param[0]) {
+                    if intermediate == Some(&b'?') && self.state.sixel.set_mode(param, true) {
+                        continue;
+                    }
                     match Mode::from_primitive(intermediate, param) {
                         Some(mode) => {
                             handler.set_mode(mode);
@@ -1405,6 +1513,9 @@ where
             }
             ('l', intermediate) => {
                 for param in params_iter.map(|param| param[0]) {
+                    if intermediate == Some(&b'?') && self.state.sixel.set_mode(param, false) {
+                        continue;
+                    }
                     match Mode::from_primitive(intermediate, param) {
                         Some(mode) => {
                             // We expect to only handle the end of a sync output update
@@ -1490,6 +1601,33 @@ where
                     .filter(|&param| param != 0);
 
                 handler.set_scrolling_region(top, bottom);
+            }
+            ('S', Some(b'?'))
+                if intermediates.len() == 1 && FeatureFlag::ITermImages.is_enabled() =>
+            {
+                // XTSMGRAPHICS, xterm's SIXEL color-register and geometry queries.
+                let item = next_param_or(0);
+                let op = next_param_or(0);
+                match (item, op) {
+                    (1, 1 | 4) => {
+                        let _ = writer.write_all(b"\x1b[?1;0;256S");
+                    }
+                    (2, 1) => handler.report_sixel_geometry(writer),
+                    (2, 4) => {
+                        let _ = write!(
+                            writer,
+                            "\x1b[?2;0;{};{}S",
+                            sixel::MAX_WIDTH,
+                            sixel::MAX_HEIGHT
+                        );
+                    }
+                    (1 | 2, _) => {
+                        let _ = write!(writer, "\x1b[?{item};2S");
+                    }
+                    _ => {
+                        let _ = write!(writer, "\x1b[?{item};1S");
+                    }
+                }
             }
             ('S', None) => {
                 handler.scroll_up(next_param_or(1) as usize);
@@ -1581,7 +1719,10 @@ where
                 self.handler.reverse_index();
             }
             (b'Z', []) => self.handler.identify_terminal(self.writer, None),
-            (b'c', []) => self.handler.reset_state(),
+            (b'c', []) => {
+                self.state.sixel = SixelState::default();
+                self.handler.reset_state();
+            }
             (b'0', intermediates) => configure_charset!(
                 StandardCharset::SpecialCharacterAndusizeDrawing,
                 intermediates
@@ -1602,7 +1743,10 @@ where
     }
 
     fn apc_put(&mut self, byte: u8) {
-        self.state.apc_data.push(byte);
+        // Retain one byte beyond the limit to mark an oversized command until its terminator.
+        if self.state.apc_data.len() <= super::kitty::MAX_KITTY_APC_BYTES {
+            self.state.apc_data.push(byte);
+        }
     }
 
     fn apc_end(&mut self) {
@@ -1619,7 +1763,7 @@ where
                 return;
             }
 
-            let parsed_chunk = parse_kitty_chunk(self.state.apc_data[1..].to_vec());
+            let parsed_chunk = parse_kitty_chunk(&self.state.apc_data[1..]);
 
             let further_chunks = parsed_chunk.control_data.further_chunks;
 

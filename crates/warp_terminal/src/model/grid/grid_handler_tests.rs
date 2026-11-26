@@ -14,6 +14,29 @@ use crate::test_util::mock_blockgrid;
 
 const MAX_SCROLL_LIMIT: usize = 1000;
 
+#[test]
+fn sixel_cursor_finishes_on_last_image_row_and_wraps_only_in_right_mode() {
+    let _guard = warp_core::features::FeatureFlag::ITermImages.override_enabled(true);
+    let mut grid = mock_blockgrid("123456\r\n\r\n\r\n");
+    grid.grid_handler_mut().ansi_handler_state.cell_width = 1;
+    grid.grid_handler_mut().ansi_handler_state.cell_height = 3;
+    let mut parser = crate::model::ansi::Processor::new();
+    parser.parse_bytes(&mut grid, b"\x1b[1;3H\x1bP9q!4~\x1b\\", &mut Vec::new());
+    assert_eq!(grid.grid_handler().cursor_point(), Point::new(1, 2));
+
+    parser.parse_bytes(
+        &mut grid,
+        b"\x1b[1;3H\x1b[?8452h\x1bP9q!4~\x1b\\",
+        &mut Vec::new(),
+    );
+    assert_eq!(grid.grid_handler().cursor_point(), Point::new(2, 0));
+    parser.parse_bytes(&mut grid, b"\x1b[1;3H\x1bP9q!2~\x1b\\", &mut Vec::new());
+    assert_eq!(grid.grid_handler().cursor_point(), Point::new(1, 4));
+
+    parser.parse_bytes(&mut grid, b"\x1b[?80h\x1bP9q!8~\x1b\\", &mut Vec::new());
+    assert_eq!(grid.grid_handler().cursor_point(), Point::new(1, 4));
+}
+
 fn has_wide_char_character(blockgrid: &BlockGrid) -> bool {
     let mut point = Point { row: 0, col: 0 };
 

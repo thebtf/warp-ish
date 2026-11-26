@@ -7,7 +7,7 @@ use pathfinder_geometry::vector::Vector2F;
 
 use super::grid::grid_handler::{AbsolutePoint, AbsoluteRectangle};
 use super::iterm_image::ITermImageMetadata;
-use super::kitty::KittyImageMetadata;
+use super::kitty::{KittyImageMetadata, KittySourceRect};
 
 /// This image cache stores the absolute positions of points, relative to the number of rows
 /// that haven't been truncated yet. Stored absolute points are nearly always stale as we store
@@ -25,11 +25,21 @@ pub struct ImageMap {
     image_placement_data: HashMap<(u32, u32), ImagePlacementData>,
     num_lines_truncated_at_last_update: u64,
     image_type_by_image_id: HashMap<u32, ImageType>,
+    /// Kitty virtual placements (`U=1`) by image id, shown wherever placeholder cells name them.
+    virtual_placements: HashMap<u32, VirtualPlacement>,
 }
 
 impl ImageMap {
     pub fn is_empty(&self) -> bool {
         self.image_placement_data.is_empty()
+    }
+
+    pub fn add_virtual_placement(&mut self, image_id: u32, placement: VirtualPlacement) {
+        self.virtual_placements.insert(image_id, placement);
+    }
+
+    pub fn virtual_placement(&self, image_id: u32) -> Option<VirtualPlacement> {
+        self.virtual_placements.get(&image_id).copied()
     }
 
     pub fn get_image_placement_data(
@@ -63,8 +73,17 @@ impl ImageMap {
             .entry(primary_point)
             .or_default()
             .insert((image_id, placement_id));
-        self.point_by_image_id
-            .insert((image_id, placement_id), primary_point);
+        if let Some(previous) = self
+            .point_by_image_id
+            .insert((image_id, placement_id), primary_point)
+            && previous != primary_point
+            && let Some(previous_placements) = self.image_ids_by_point.get_mut(&previous)
+        {
+            previous_placements.remove(&(image_id, placement_id));
+            if previous_placements.is_empty() {
+                self.image_ids_by_point.remove(&previous);
+            }
+        }
         self.image_type_by_image_id.insert(image_id, image_type);
         self.evict_truncated_absolute_points(num_lines_truncated);
     }
@@ -138,7 +157,7 @@ impl ImageMap {
                         }
 
                         let rectangle_start = rectangle.start_row_to_point(0);
-                        let image_end = top_left.add_rows(height);
+                        let image_end = top_left.add_rows(height - 1);
 
                         // Since we extended the search window by the height of the largest image, we need to ensure
                         // images actually overlap with our original search window
@@ -255,10 +274,36 @@ impl ImageMap {
         self.image_placement_data.clear();
         self.image_ids_by_point.clear();
         self.point_by_image_id.clear();
+        self.image_type_by_image_id.clear();
+        self.virtual_placements.clear();
         self.largest_height = 0;
     }
 
+    pub(super) fn evict_kitty_in_rectangle(&mut self, visible: AbsoluteRectangle) -> HashSet<u32> {
+        let mut removed = HashSet::new();
+        for placement in self.get_image_ids_by_rectangle(visible) {
+            if self.image_type_by_image_id.get(&placement.image_id) == Some(&ImageType::Kitty) {
+                // Virtual placements have no screen coordinates and survive d=a/A.
+                self.evict_physical_placement(placement.image_id, placement.placement_id);
+                removed.insert(placement.image_id);
+            }
+        }
+        removed
+    }
+
+    pub(super) fn contains_placement(&self, image_id: u32) -> bool {
+        self.virtual_placements.contains_key(&image_id) || self.has_physical_placement(image_id)
+    }
+
+    fn has_physical_placement(&self, image_id: u32) -> bool {
+        self.point_by_image_id
+            .range((image_id, 0)..=(image_id, u32::MAX))
+            .next()
+            .is_some()
+    }
+
     pub fn evict_image(&mut self, image_id_to_evict: u32) {
+        self.virtual_placements.remove(&image_id_to_evict);
         let mut images_to_evict = vec![];
         for &(image_id, placement_id) in self.point_by_image_id.keys() {
             if image_id == image_id_to_evict {
@@ -272,6 +317,17 @@ impl ImageMap {
     }
 
     pub fn evict_placement(&mut self, image_id: u32, placement_id: u32) {
+        if self
+            .virtual_placements
+            .get(&image_id)
+            .is_some_and(|p| p.placement_id == placement_id)
+        {
+            self.virtual_placements.remove(&image_id);
+        }
+        self.evict_physical_placement(image_id, placement_id);
+    }
+
+    fn evict_physical_placement(&mut self, image_id: u32, placement_id: u32) {
         self.image_placement_data.remove(&(image_id, placement_id));
         if let Some(point) = self.point_by_image_id.get(&(image_id, placement_id)) {
             if let Some(image_ids) = self.image_ids_by_point.get_mut(point) {
@@ -282,6 +338,9 @@ impl ImageMap {
             }
 
             self.point_by_image_id.remove(&(image_id, placement_id));
+            if !self.has_physical_placement(image_id) {
+                self.image_type_by_image_id.remove(&image_id);
+            }
         }
     }
 }
@@ -316,13 +375,23 @@ impl StoredImageMetadata {
     pub fn preserve_aspect_ratio(&self) -> bool {
         match self {
             StoredImageMetadata::ITerm(metadata) => metadata.preserve_aspect_ratio,
-            StoredImageMetadata::Kitty(_) => false,
+            StoredImageMetadata::Kitty(_) => true,
         }
     }
 }
 
+/// A kitty virtual placement (`U=1`): the box of cells its placeholder cells fit the image into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VirtualPlacement {
+    pub source: KittySourceRect,
+    pub placement_id: u32,
+    pub cols: u32,
+    pub rows: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct ImagePlacementData {
+    pub source: KittySourceRect,
     pub z_index: i32,
     pub height_cells: usize,
     pub image_size: Vector2F,

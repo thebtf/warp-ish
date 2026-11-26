@@ -231,6 +231,9 @@ pub trait Handler {
     /// Report text area size in pixels.
     fn text_area_size_pixels<W: io::Write>(&mut self, _: &mut W);
 
+    /// Reply to a SIXEL graphics geometry query (XTSMGRAPHICS).
+    fn report_sixel_geometry<W: io::Write>(&mut self, _: &mut W);
+
     /// Report text area size in characters.
     fn text_area_size_chars<W: io::Write>(&mut self, _: &mut W);
 
@@ -365,6 +368,9 @@ pub trait Handler {
     /// This will either be a MultipartFile or File (legacy).
     /// This will take the metadata given by the first message.
     fn start_iterm_image_receiving(&mut self, _metadata: ITermImageMetadata) {}
+
+    /// Discard an incomplete multipart transfer if the parser drops an oversized OSC.
+    fn cancel_iterm_image_receiving(&mut self) {}
 
     /// Callback to handle the OSC to finish receiving an iTerm image.
     fn end_iterm_image_receiving(&mut self) {}

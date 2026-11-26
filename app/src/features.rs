@@ -73,7 +73,7 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::ImeMarkedText,
         #[cfg(feature = "partial_next_command_suggestions")]
         FeatureFlag::PartialNextCommandSuggestions,
-        #[cfg(feature = "iterm_images")]
+        #[cfg(any(windows, feature = "iterm_images"))]
         FeatureFlag::ITermImages,
         #[cfg(feature = "validate_autosuggestions")]
         FeatureFlag::ValidateAutosuggestions,
@@ -81,7 +81,7 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::ClearAutosuggestionOnEscape,
         #[cfg(feature = "autoupdate_ui_revamp")]
         FeatureFlag::AutoupdateUIRevamp,
-        #[cfg(all(not(windows), feature = "kitty_images"))]
+        #[cfg(feature = "kitty_images")]
         FeatureFlag::KittyImages,
         #[cfg(feature = "warp_packs")]
         FeatureFlag::WarpPacks,

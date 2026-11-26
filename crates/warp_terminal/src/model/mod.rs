@@ -14,6 +14,7 @@ pub mod completions;
 pub mod escape_sequences;
 pub mod find;
 pub mod grid;
+pub mod image_limits;
 pub mod image_map;
 mod indexing;
 pub mod index {
@@ -21,6 +22,7 @@ pub mod index {
 }
 pub mod iterm_image;
 pub mod kitty;
+pub mod kitty_unicode_placeholder;
 mod mode;
 pub mod mouse;
 pub mod secrets;

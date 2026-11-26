@@ -1144,6 +1144,10 @@ impl ansi::Handler for HeaderGrid {
         delegate_with_writer!(self.text_area_size_pixels(writer));
     }
 
+    fn report_sixel_geometry<W: std::io::Write>(&mut self, writer: &mut W) {
+        delegate_with_writer!(self.report_sixel_geometry(writer));
+    }
+
     fn text_area_size_chars<W: std::io::Write>(&mut self, writer: &mut W) {
         delegate_with_writer!(self.text_area_size_chars(writer));
     }

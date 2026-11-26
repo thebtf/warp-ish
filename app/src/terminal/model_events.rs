@@ -213,6 +213,7 @@ impl ModelEventDispatcher {
                 image_data,
                 image_protocol,
             },
+            Event::ImageDeleted(id) => ModelEvent::ImageDeleted(id),
             Event::BootstrapPrecmdDone => ModelEvent::BootstrapPrecmdDone,
             Event::AgentTaggedInChanged {
                 block_id,
@@ -350,6 +351,7 @@ pub enum ModelEvent {
         image_data: Vec<u8>,
         image_protocol: ImageProtocol,
     },
+    ImageDeleted(u32),
     BootstrapPrecmdDone,
     AgentTaggedInChanged {
         block_id: BlockId,

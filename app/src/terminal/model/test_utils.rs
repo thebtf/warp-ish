@@ -54,6 +54,7 @@ pub fn test_iterm_image(image_id: u32) -> ITermImage {
             image_size: Vector2F::new(10.0, 10.0),
         },
         data: vec![0],
+        placement: Default::default(),
     }
 }
 

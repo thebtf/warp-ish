@@ -26,6 +26,7 @@ futures.workspace = true
 futures-lite.workspace = true
 get-size.workspace = true
 hex.workspace = true
+icy_sixel = "0.7.0"
 image.workspace = true
 instant.workspace = true
 itertools.workspace = true

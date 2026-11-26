@@ -43,6 +43,8 @@
 
 ## Дополнительные материалы
 
+Версии warp-ish следуют собственному циклу выпусков. Например, `0.2.0-rc.1` добавляет терминальную графику на базе [Warp master `1c7fda1191`](https://github.com/warpdotdev/warp/commit/1c7fda1191bdfcd727c76b39a2c783a46d080d61). Полный upstream SHA и SHA сборки форка записываются в манифест пакета. Отображение Unicode-плейсхолдеров Kitty основано на работе Michel Sciortino. [Исходный PR #16312](https://github.com/warpdotdev/warp/pull/16312)
+
 - [Объявление об открытии исходников](https://www.warp.dev/blog/warp-is-now-open-source).
 - [Лицензирование и состав открытого клиента](https://github.com/warpdotdev/warp/blob/master/FAQ.md).
 - [Восстановление сессий](https://docs.warp.dev/terminal/sessions/session-restoration).

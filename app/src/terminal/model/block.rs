@@ -3365,6 +3365,10 @@ impl ansi::Handler for Block {
         delegate!(self.text_area_size_pixels(writer));
     }
 
+    fn report_sixel_geometry<W: std::io::Write>(&mut self, writer: &mut W) {
+        delegate!(self.report_sixel_geometry(writer));
+    }
+
     fn text_area_size_chars<W: std::io::Write>(&mut self, writer: &mut W) {
         delegate!(self.text_area_size_chars(writer));
     }

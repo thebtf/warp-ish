@@ -9,6 +9,16 @@ use warpui_core::util::parse_u32;
 pub struct ITermImage {
     pub metadata: ITermImageMetadata,
     pub data: Vec<u8>,
+    pub placement: InlineImagePlacement,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum InlineImagePlacement {
+    #[default]
+    ITerm,
+    SixelLeft,
+    SixelRight,
+    SixelViewport,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]

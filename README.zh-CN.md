@@ -20,6 +20,7 @@ warp-ish 是一款基于 [Warp](https://github.com/warpdotdev/warp) 的本地终
 
 ## 主要功能
 
+- 通过 Kitty Graphics、iTerm2 内联图像协议（OSC 1337）或 SIXEL 在终端输出中直接查看图像。例如，安装 Chafa 后，可运行 `chafa -f sixels photo.png`。使用 Kitty 协议时，程序通过输出流传输图像数据。此功能自 `0.2.0-rc.1` 起提供，该版本基于 Warp 的 `master @ 1c7fda1191`。
 - 在窗口、标签页和分屏窗格中使用 PowerShell。支持命令和输出分块、多行输入、本地补全、搜索和主题。
 - 恢复终端布局和各窗格的工作目录。恢复后的窗格会启动新的 Shell，等待你输入命令。
 - 运行 OMP、SSH、Git 等命令行工具。直接运行 `omp` 或 `omp.exe` 时，调整窗格大小已不会因反复切换屏幕而闪烁。

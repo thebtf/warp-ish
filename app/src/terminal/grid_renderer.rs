@@ -12,6 +12,8 @@ use num_traits::Float as _;
 use unicode_width::UnicodeWidthChar;
 use warp_core::features::FeatureFlag;
 use warp_errors::{ReportErrorLogMode, report_error};
+use warp_terminal::model::kitty::KittySourceRect;
+use warp_terminal::model::kitty_unicode_placeholder::PlaceholderRunBuilder;
 use warpui::assets::asset_cache::{AssetCache, AssetSource, AssetState};
 use warpui::color::ColorU;
 use warpui::elements::{Border, CornerRadius, DEFAULT_UI_LINE_HEIGHT_RATIO, Fill, Radius};
@@ -284,6 +286,16 @@ where
     None
 }
 
+#[derive(Clone, Copy)]
+pub struct PaneImages<'a> {
+    pub pane: EntityId,
+    pub metadata: &'a HashMap<u32, StoredImageMetadata>,
+}
+
+pub fn terminal_image_asset_key(pane: EntityId, image_id: u32) -> String {
+    format!("{pane}:{image_id}")
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn render_grid<'a>(
     grid: &GridHandler,
@@ -311,7 +323,7 @@ pub fn render_grid<'a>(
     use_ligature_rendering: bool,
     visible_cursor_shape: Option<CursorShape>,
     respect_displayed_output: RespectDisplayedOutput,
-    image_metadata: &HashMap<u32, StoredImageMetadata>,
+    images: Option<PaneImages<'_>>,
     bg_color_sampler: Option<&mut ColorSampler>,
     hide_cursor_cell: bool,
     ctx: &mut PaintContext,
@@ -349,7 +361,7 @@ pub fn render_grid<'a>(
                 obfuscate_secrets,
                 hovered_secret,
                 visible_cursor_shape,
-                image_metadata,
+                images,
                 bg_color_sampler,
                 hide_cursor_cell,
                 ctx,
@@ -382,7 +394,7 @@ pub fn render_grid<'a>(
                 obfuscate_secrets,
                 hovered_secret,
                 visible_cursor_shape,
-                image_metadata,
+                images,
                 bg_color_sampler,
                 hide_cursor_cell,
                 ctx,
@@ -417,7 +429,7 @@ pub fn render_grid<'a>(
                 obfuscate_secrets,
                 hovered_secret,
                 visible_cursor_shape,
-                image_metadata,
+                images,
                 bg_color_sampler,
                 hide_cursor_cell,
                 ctx,
@@ -451,7 +463,7 @@ pub fn render_grid<'a>(
                 obfuscate_secrets,
                 hovered_secret,
                 visible_cursor_shape,
-                image_metadata,
+                images,
                 bg_color_sampler,
                 hide_cursor_cell,
                 ctx,
@@ -489,7 +501,7 @@ fn render_grid_without_ligatures<'a>(
     obfuscate_secrets: ObfuscateSecrets,
     hovered_secret: Option<SecretHandle>,
     visible_cursor_shape: Option<CursorShape>,
-    image_metadata: &HashMap<u32, StoredImageMetadata>,
+    images: Option<PaneImages<'_>>,
     mut bg_color_sampler: Option<&mut ColorSampler>,
     hide_cursor_cell: bool,
     ctx: &mut PaintContext,
@@ -557,7 +569,9 @@ fn render_grid_without_ligatures<'a>(
         .flat_map(|marked_text| marked_text.chars());
     let mut next_marked_text_cell_is_wide_char_spacer = false;
 
-    if FeatureFlag::ITermImages.is_enabled() {
+    if let Some(images) = images
+        && (FeatureFlag::ITermImages.is_enabled() || FeatureFlag::KittyImages.is_enabled())
+    {
         let image_ids = grid.get_image_ids_in_range(start_row, end_row);
 
         let (background_image_ids, foreground_image_ids): (Vec<_>, Vec<_>) = image_ids
@@ -565,7 +579,8 @@ fn render_grid_without_ligatures<'a>(
             .partition(|image_placement| image_placement.z_index < 0);
 
         for image_placement in background_image_ids {
-            if let Some((image_metadata, image_placement_data)) = image_metadata
+            if let Some((image_metadata, image_placement_data)) = images
+                .metadata
                 .get(&image_placement.image_id)
                 .zip(grid.get_image_placement_data(
                     image_placement.image_id,
@@ -579,6 +594,7 @@ fn render_grid_without_ligatures<'a>(
                     );
 
                 render_image(
+                    images.pane,
                     image_placement.image_id,
                     image_metadata,
                     image_placement_data,
@@ -593,7 +609,8 @@ fn render_grid_without_ligatures<'a>(
         if !foreground_image_ids.is_empty() {
             ctx.scene.start_layer(warpui::ClipBounds::ActiveLayer);
             for image_placement in foreground_image_ids {
-                if let Some((image_metadata, image_placement_data)) = image_metadata
+                if let Some((image_metadata, image_placement_data)) = images
+                    .metadata
                     .get(&image_placement.image_id)
                     .zip(grid.get_image_placement_data(
                         image_placement.image_id,
@@ -607,6 +624,7 @@ fn render_grid_without_ligatures<'a>(
                         );
 
                     render_image(
+                        images.pane,
                         image_placement.image_id,
                         image_metadata,
                         image_placement_data,
@@ -621,6 +639,8 @@ fn render_grid_without_ligatures<'a>(
         }
     }
 
+    let mut image_placeholders =
+        PlaceholderRunBuilder::new(images.is_some() && FeatureFlag::KittyImages.is_enabled());
     for (offset, row_idx) in visible_rows.enumerate() {
         let offset_row = start_row + offset;
 
@@ -713,6 +733,8 @@ fn render_grid_without_ligatures<'a>(
             }
             // Check if the current block match contains the point.
             let cell = &row[col];
+            let placeholder_blank = image_placeholders.push(offset_row, col, cell);
+            let cell = placeholder_blank.as_ref().unwrap_or(cell);
             let mut cell_type = CellType::default();
             let mut first_cell_in_link = false;
             let mut first_cell_in_secret = FirstCellInSecret::No;
@@ -886,6 +908,17 @@ fn render_grid_without_ligatures<'a>(
             .draw_rect_without_hit_recording(RectF::new(data.origin, data.size))
             .with_background(Fill::Solid(data.color));
     }
+    if let Some(images) = images {
+        render_placeholder_runs(
+            grid,
+            images,
+            image_placeholders,
+            cell_size,
+            grid_origin,
+            ctx,
+            app,
+        );
+    }
 }
 
 #[inline]
@@ -1002,7 +1035,7 @@ fn render_grid_with_ligatures<'a>(
     obfuscate_secrets: ObfuscateSecrets,
     hovered_secret: Option<SecretHandle>,
     visible_cursor_shape: Option<CursorShape>,
-    image_metadata: &HashMap<u32, StoredImageMetadata>,
+    images: Option<PaneImages<'_>>,
     mut bg_color_sampler: Option<&mut ColorSampler>,
     hide_cursor_cell: bool,
     ctx: &mut PaintContext,
@@ -1066,7 +1099,9 @@ fn render_grid_with_ligatures<'a>(
         .flat_map(|marked_text| marked_text.chars())
         .peekable();
     let mut next_marked_text_cell_is_wide_char_spacer = false;
-    if FeatureFlag::ITermImages.is_enabled() {
+    if let Some(images) = images
+        && (FeatureFlag::ITermImages.is_enabled() || FeatureFlag::KittyImages.is_enabled())
+    {
         let image_ids = grid.get_image_ids_in_range(start_row, end_row);
 
         let (background_image_ids, foreground_image_ids): (Vec<_>, Vec<_>) = image_ids
@@ -1074,7 +1109,8 @@ fn render_grid_with_ligatures<'a>(
             .partition(|image_placement| image_placement.z_index < 0);
 
         for image_placement in background_image_ids {
-            if let Some((image_metadata, image_placement_data)) = image_metadata
+            if let Some((image_metadata, image_placement_data)) = images
+                .metadata
                 .get(&image_placement.image_id)
                 .zip(grid.get_image_placement_data(
                     image_placement.image_id,
@@ -1088,6 +1124,7 @@ fn render_grid_with_ligatures<'a>(
                     );
 
                 render_image(
+                    images.pane,
                     image_placement.image_id,
                     image_metadata,
                     image_placement_data,
@@ -1102,7 +1139,8 @@ fn render_grid_with_ligatures<'a>(
         if !foreground_image_ids.is_empty() {
             ctx.scene.start_layer(warpui::ClipBounds::ActiveLayer);
             for image_placement in foreground_image_ids {
-                if let Some((image_metadata, image_placement_data)) = image_metadata
+                if let Some((image_metadata, image_placement_data)) = images
+                    .metadata
                     .get(&image_placement.image_id)
                     .zip(grid.get_image_placement_data(
                         image_placement.image_id,
@@ -1116,6 +1154,7 @@ fn render_grid_with_ligatures<'a>(
                         );
 
                     render_image(
+                        images.pane,
                         image_placement.image_id,
                         image_metadata,
                         image_placement_data,
@@ -1130,6 +1169,8 @@ fn render_grid_with_ligatures<'a>(
         }
     }
 
+    let mut image_placeholders =
+        PlaceholderRunBuilder::new(images.is_some() && FeatureFlag::KittyImages.is_enabled());
     for (offset, row_idx) in visible_rows.enumerate() {
         let offset_row = start_row + offset;
         let mut string_builder =
@@ -1180,6 +1221,8 @@ fn render_grid_with_ligatures<'a>(
 
         for col in 0..grid.columns() {
             let cell = &row[col];
+            let placeholder_blank = image_placeholders.push(offset_row, col, cell);
+            let cell = placeholder_blank.as_ref().unwrap_or(cell);
             let mut cell_type = CellType::default();
             let mut first_cell_in_link = false;
             let mut first_cell_in_secret = FirstCellInSecret::No;
@@ -1388,6 +1431,12 @@ fn render_grid_with_ligatures<'a>(
                 ctx,
             );
 
+            // A placeholder's image covers it, so it adds nothing to the text line but a space
+            // that keeps the text on either side from joining into a ligature, one per stretch.
+            if placeholder_blank.is_some() && string_builder.line.ends_with(' ') {
+                continue;
+            }
+
             let glyph_offset = cell_size * vec2f(col as f32, offset_row as f32);
             if first_cell_in_link {
                 // We want this to be a bounding box to be around the cell, so we don't include baseline_position in the origin.
@@ -1516,6 +1565,17 @@ fn render_grid_with_ligatures<'a>(
         ctx.scene
             .draw_rect_without_hit_recording(RectF::new(data.origin, data.size))
             .with_background(Fill::Solid(data.color));
+    }
+    if let Some(images) = images {
+        render_placeholder_runs(
+            grid,
+            images,
+            image_placeholders,
+            cell_size,
+            grid_origin,
+            ctx,
+            app,
+        );
     }
 }
 
@@ -1851,6 +1911,7 @@ fn render_glyph_svg(
 
 #[allow(clippy::too_many_arguments)]
 fn render_image(
+    pane: EntityId,
     image_id: u32,
     image_metadata: &StoredImageMetadata,
     image_placement_data: &ImagePlacementData,
@@ -1859,12 +1920,27 @@ fn render_image(
     ctx: &mut PaintContext,
     app: &AppContext,
 ) {
+    if let StoredImageMetadata::Kitty(metadata) = image_metadata {
+        let destination = RectF::new(grid_origin + glyph_offset, image_placement_data.image_size);
+        render_kitty_region(
+            pane,
+            image_id,
+            metadata.image_size,
+            image_placement_data.source,
+            destination,
+            destination,
+            ctx,
+            app,
+        );
+        return;
+    }
+
     let bounds = (image_placement_data.image_size * ctx.scene.scale_factor()).to_i32();
 
     let asset_cache = AssetCache::as_ref(app);
     let image = ImageCache::as_ref(app).image(
         AssetSource::Raw {
-            id: image_id.to_string(),
+            id: terminal_image_asset_key(pane, image_id),
         },
         bounds,
         if image_metadata.preserve_aspect_ratio() {
@@ -1905,6 +1981,97 @@ fn render_image(
         Image::Animated(_) => {
             log::warn!("Image should be static");
         }
+    }
+}
+
+/// Place a source-pixel rectangle inside a cell box, then clip the original texture to the
+/// visible cells. Row-wise TUI redraws reuse one texture for every band of the image.
+#[allow(clippy::too_many_arguments)]
+fn render_kitty_region(
+    pane: EntityId,
+    image_id: u32,
+    original_size: Vector2F,
+    source: KittySourceRect,
+    destination: RectF,
+    visible: RectF,
+    ctx: &mut PaintContext,
+    app: &AppContext,
+) {
+    let Some(source) = source.resolve(original_size) else {
+        return;
+    };
+    let scale = (destination.width() / source.width()).min(destination.height() / source.height());
+    let drawn_size = source.size() * scale;
+    let origin = destination.origin() + (destination.size() - drawn_size) * 0.5;
+    let Some(clip) = visible.intersection(RectF::new(origin, drawn_size)) else {
+        return;
+    };
+    let image = ImageCache::as_ref(app).image(
+        AssetSource::Raw {
+            id: terminal_image_asset_key(pane, image_id),
+        },
+        Default::default(),
+        FitType::Contain,
+        AnimatedImageBehavior::FullAnimation,
+        CacheOption::Original,
+        ctx.max_texture_dimension_2d,
+        AssetCache::as_ref(app),
+    );
+    let AssetState::Loaded { data } = image else {
+        return;
+    };
+    let Image::Static(image) = data.as_ref() else {
+        return;
+    };
+
+    ctx.scene
+        .start_layer(warpui::ClipBounds::BoundedByActiveLayerAnd(clip));
+    ctx.scene.draw_image(
+        RectF::new(origin - source.origin() * scale, original_size * scale),
+        image.clone(),
+        1.,
+        CornerRadius::default(),
+    );
+    ctx.scene.stop_layer();
+}
+
+fn render_placeholder_runs(
+    grid: &GridHandler,
+    images: PaneImages,
+    image_placeholders: PlaceholderRunBuilder,
+    cell_size: Vector2F,
+    grid_origin: Vector2F,
+    ctx: &mut PaintContext,
+    app: &AppContext,
+) {
+    for run in image_placeholders.finish() {
+        let Some(placement) = grid.virtual_image_placement(run.image_id) else {
+            continue;
+        };
+        let Some(StoredImageMetadata::Kitty(metadata)) = images.metadata.get(&run.image_id) else {
+            continue;
+        };
+        let box_origin = grid_origin
+            + cell_size
+                * vec2f(
+                    run.screen_col as f32 - run.tile_col as f32,
+                    run.screen_row as f32 - run.tile_row as f32,
+                );
+        let box_size = cell_size * vec2f(placement.cols as f32, placement.rows as f32);
+        let run_bounds = RectF::new(
+            grid_origin + cell_size * vec2f(run.screen_col as f32, run.screen_row as f32),
+            cell_size * vec2f(run.len as f32, run.rows as f32),
+        );
+        render_kitty_region(
+            images.pane,
+            run.image_id,
+            metadata.image_size,
+            placement.source,
+            RectF::new(box_origin, box_size),
+            run_bounds,
+            ctx,
+            app,
+        );
     }
 }
 

@@ -639,6 +639,10 @@ impl ansi::Handler for AltScreen {
         self.ansi_handler().text_area_size_pixels(writer);
     }
 
+    fn report_sixel_geometry<W: io::Write>(&mut self, writer: &mut W) {
+        self.ansi_handler().report_sixel_geometry(writer);
+    }
+
     fn text_area_size_chars<W: io::Write>(&mut self, writer: &mut W) {
         self.ansi_handler().text_area_size_chars(writer);
     }
