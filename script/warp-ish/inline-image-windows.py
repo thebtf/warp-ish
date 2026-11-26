@@ -283,6 +283,9 @@ def session(scratch):
         content=[
             {"type": "text", "text": "Inline image acceptance"},
             {"type": "image", "mimeType": "image/png", "data": encoded},
+            # OMP 19.2.1 omits a trailing assistant image on session replay.
+            # Text below the PNG makes OMP write the actual image to its terminal.
+            {"type": "text", "text": "End of fixture picture."},
         ],
         timestamp=1795564800000,
         usage=dict(
