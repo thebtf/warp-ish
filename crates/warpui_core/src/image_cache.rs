@@ -22,6 +22,48 @@ use crate::util::parse_u32;
 use crate::{Entity, SingletonEntity};
 
 const MIN_REFRESH_DELAY_MS: u32 = 50;
+pub const MAX_TERMINAL_IMAGE_BYTES: usize = 64 * 1024 * 1024;
+
+fn collect_animation(frames: image::Frames<'_>) -> anyhow::Result<Vec<Frame>> {
+    let mut bytes_left = MAX_TERMINAL_IMAGE_BYTES;
+    let mut collected = Vec::new();
+    for frame in frames {
+        let frame = frame?;
+        // Budget every decoded frame, including its bookkeeping for tiny animations.
+        bytes_left = bytes_left
+            .checked_sub(frame.buffer().as_raw().len() + std::mem::size_of::<Frame>())
+            .ok_or_else(|| anyhow!("Animation exceeds decoded image budget"))?;
+        collected.push(frame);
+    }
+    Ok(collected)
+}
+
+/// Inline SVG comes from PTY output. Resolve neither local paths nor nested images.
+/// Rasterize once so subsequent cache loads cannot resolve references differently.
+pub fn rasterize_terminal_svg(data: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let options = usvg::Options {
+        fontdb: SVG_FONT_DB.clone(),
+        image_href_resolver: usvg::ImageHrefResolver {
+            resolve_data: Box::new(|_, _, _| None),
+            resolve_string: Box::new(|_, _| None),
+        },
+        ..Default::default()
+    };
+    let tree = usvg::Tree::from_data(data, &options)?;
+    let size = tree.size().to_int_size();
+    anyhow::ensure!(
+        u64::from(size.width()) * u64::from(size.height()) <= (MAX_TERMINAL_IMAGE_BYTES / 4) as u64,
+        "Inline SVG exceeds decoded image budget"
+    );
+    let mut pixels = tiny_skia::Pixmap::new(size.width(), size.height())
+        .ok_or_else(|| anyhow!("Invalid SVG dimensions"))?;
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::identity(),
+        &mut pixels.as_mut(),
+    );
+    Ok(pixels.encode_png()?)
+}
 
 static SVG_FONT_DB: LazyLock<Arc<usvg::fontdb::Database>> = LazyLock::new(|| {
     let mut fontdb = usvg::fontdb::Database::new();
@@ -345,7 +387,7 @@ impl Asset for ImageType {
             Ok(ImageFormat::WebP) => {
                 let decoder = WebPDecoder::new(std::io::Cursor::new(data))?;
                 if decoder.has_animation() {
-                    let frames = decoder.into_frames().collect_frames()?;
+                    let frames = collect_animation(decoder.into_frames())?;
                     Ok(ImageType::AnimatedBitmap {
                         image: Arc::new(AnimatedImage::from(frames)),
                     })
@@ -358,7 +400,7 @@ impl Asset for ImageType {
             }
             Ok(ImageFormat::Gif) => {
                 let decoder = GifDecoder::new(std::io::Cursor::new(data))?;
-                let frames = decoder.into_frames().collect_frames()?;
+                let frames = collect_animation(decoder.into_frames())?;
                 Ok(ImageType::AnimatedBitmap {
                     image: Arc::new(AnimatedImage::from(frames)),
                 })
@@ -508,13 +550,13 @@ pub enum CacheOption {
 
 impl From<Vec<Frame>> for AnimatedImage {
     fn from(value: Vec<Frame>) -> Self {
-        let mut duration = 0;
+        let mut duration = 0u32;
         let frames = value
             .into_iter()
             .map(|frame| {
                 let (delay_numerator, delay_denominator) = frame.delay().numer_denom_ms();
                 let delay_ms = (delay_numerator / delay_denominator).max(MIN_REFRESH_DELAY_MS);
-                duration += delay_ms;
+                duration = duration.saturating_add(delay_ms);
 
                 AnimatedImageFrame {
                     image: Arc::new(StaticImage {
@@ -736,7 +778,7 @@ impl AnimatedImage {
         let elapsed = elapsed % self.duration;
         let mut start = 0;
         for frame in self.frames.iter() {
-            let end = start + frame.delay;
+            let end = frame.delay.saturating_add(start);
             if elapsed >= start && elapsed < end {
                 let remaining_delay = end - elapsed;
                 return Ok((frame.image.clone(), remaining_delay));

@@ -88,7 +88,7 @@ use warp_util::local_or_remote_path::LocalOrRemotePath;
 use warp_util::path::LineAndColumnArg;
 use warp_util::path::ShellFamily;
 use warpui::accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole};
-use warpui::assets::asset_cache::{AssetCache, AssetCacheEvent};
+use warpui::assets::asset_cache::{AssetCache, AssetCacheEvent, RawAssetScope};
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::new_scrollable::{NewScrollableElement, ScrollableAppearance, SingleAxisConfig};
@@ -1477,6 +1477,7 @@ struct LocalSessionCanonicalPwdCache {
 
 pub struct TerminalView {
     pub model: Arc<FairMutex<TerminalModel>>,
+    image_assets: RawAssetScope,
     view_handle: WeakViewHandle<Self>,
 
     /// The session's size data. This is wrapped in a [`Tracked`] to
@@ -2373,9 +2374,12 @@ impl TerminalView {
 
         ctx.subscribe_to_model(&AssetCache::handle(ctx), |me, _, event, _| match event {
             AssetCacheEvent::ImagesEvicted { image_ids } => {
-                let mut terminal_model = me.model.lock();
-                for &image_id in image_ids {
-                    terminal_model.remove_image_id_to_metadata_entry(image_id);
+                let mut ids = image_ids.iter().filter_map(|key| me.image_assets.local_id(key)?.parse().ok()).peekable();
+                if ids.peek().is_some() {
+                    let mut terminal_model = me.model.lock();
+                    for id in ids {
+                        terminal_model.remove_image_id_to_metadata_entry(id);
+                    }
                 }
             }
         });
@@ -2385,6 +2389,7 @@ impl TerminalView {
         let window_id = ctx.window_id();
         let mut terminal_view = Self {
             model,
+            image_assets: AssetCache::as_ref(ctx).raw_asset_scope(ctx.view_id()),
             input,
             inline_menu_positioner,
             view_handle: ctx.handle(),
@@ -5668,13 +5673,14 @@ impl TerminalView {
                 image_data,
                 image_protocol: _,
             } => {
+                let key = super::grid_renderer::terminal_image_asset_key(ctx.view_id(), *image_id);
                 AssetCache::handle(ctx).update(ctx, |asset_cache, ctx| {
-                    asset_cache.insert_raw_asset_bytes::<ImageType>(
-                        image_id.to_string(),
-                        &image_data[..],
-                        ctx,
-                    );
+                    asset_cache.insert_raw_asset_bytes::<ImageType>(key, &image_data[..], ctx);
                 });
+                ctx.notify();
+            }
+            ModelEvent::ImageDeleted(id) => {
+                self.image_assets.remove::<ImageType>(id);
                 ctx.notify();
             }
             ModelEvent::BootstrapPrecmdDone => {

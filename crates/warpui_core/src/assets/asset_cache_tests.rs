@@ -5,6 +5,77 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use super::{AssetCache, AssetHandle, AssetSource, AssetStateInternal, LocalFileContentVersion};
 
+#[test]
+fn raw_images_are_released_on_delete_or_pane_drop_and_keep_other_panes_alive() {
+    use super::AssetState;
+    use crate::image_cache::{AnimatedImageBehavior, CacheOption, FitType, Image, ImageType};
+    use crate::{App, EntityId, SingletonEntity};
+    use pathfinder_geometry::vector::Vector2I;
+
+    App::test((), |mut app| async move {
+        AssetCache::handle(&app).update(&mut app, |cache, ctx| {
+            let pane = cache.raw_asset_scope(EntityId::from_usize(1));
+            let pixels = b"warp-img:rgba:1:1:\x11\x22\x33\xff";
+            let mut rendered = Vec::new();
+            for id in ["1:7", "1:8", "10:7"] {
+                cache.insert_raw_asset_bytes::<ImageType>(id.into(), pixels, ctx);
+                let state = cache.image_cache.image(
+                    AssetSource::Raw { id: id.into() },
+                    Vector2I::new(2, 2),
+                    FitType::Stretch,
+                    AnimatedImageBehavior::FullAnimation,
+                    CacheOption::BySize,
+                    None,
+                    cache,
+                );
+                let AssetState::Loaded { data } = state else {
+                    panic!("missing raw asset")
+                };
+                let Image::Static(image) = data.as_ref() else {
+                    panic!("expected a bitmap")
+                };
+                rendered.push(std::sync::Arc::downgrade(image));
+            }
+            pane.remove::<ImageType>(7);
+            assert!(rendered[0].upgrade().is_none());
+            assert_eq!(cache.get_total_raw_asset_size(), 8);
+            drop(pane);
+            assert!(rendered[1].upgrade().is_none());
+            assert!(rendered[2].upgrade().is_some());
+            assert_eq!(cache.get_total_raw_asset_size(), 4);
+        });
+    });
+}
+
+#[test]
+fn raw_eviction_does_not_retain_a_cache_entry() {
+    use super::{Asset, AssetState};
+    use crate::{App, SingletonEntity};
+    struct Large;
+    impl Asset for Large {
+        fn try_from_bytes(_: &[u8]) -> anyhow::Result<Self> {
+            Ok(Self)
+        }
+        fn size_in_bytes(&self) -> usize {
+            AssetCache::MAX_RAW_ASSET_SIZE + 1
+        }
+    }
+    App::test((), |mut app| async move {
+        AssetCache::handle(&app).update(&mut app, |cache, ctx| {
+            cache.insert_raw_asset_bytes::<Large>("1:1".into(), &[], ctx);
+            let source = AssetSource::Raw { id: "1:1".into() };
+            assert!(matches!(
+                cache.load_asset::<Large>(source.clone()),
+                AssetState::Evicted
+            ));
+            assert!(!cache.inner.borrow().contains_key(&AssetHandle {
+                source,
+                asset_type: TypeId::of::<Large>()
+            }));
+        });
+    });
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn unique_temp_path(name: &str) -> std::path::PathBuf {
     let mut path = std::env::temp_dir();

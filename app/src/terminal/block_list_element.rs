@@ -2056,7 +2056,10 @@ impl BlockListElement {
                         Properties::default(),
                         block_grid_params,
                         None,
-                        image_metadata,
+                        Some(grid_renderer::PaneImages {
+                            pane: terminal_view_id,
+                            metadata: image_metadata,
+                        }),
                         ctx,
                         app,
                     );
@@ -2110,7 +2113,10 @@ impl BlockListElement {
                 command_grid_properties,
                 block_grid_params,
                 command_grid_visible_cursor_shape(block),
-                image_metadata,
+                Some(grid_renderer::PaneImages {
+                    pane: terminal_view_id,
+                    metadata: image_metadata,
+                }),
                 ctx,
                 app,
             );
@@ -2209,7 +2215,10 @@ impl BlockListElement {
                 output_grid_properties,
                 block_grid_params,
                 output_grid_visible_cursor_shape(block),
-                image_metadata,
+                Some(grid_renderer::PaneImages {
+                    pane: terminal_view_id,
+                    metadata: image_metadata,
+                }),
                 ctx,
                 app,
             );

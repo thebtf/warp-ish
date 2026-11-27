@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "observed_upstream_sha": "e3525c726d885830a66474fd468ac8014dbf2ec8",
+  "observed_upstream_sha": "1c7fda1191bdfcd727c76b39a2c783a46d080d61",
   "source_repository": "https://github.com/warpdotdev/warp",
   "stable_tag_pattern": "(?:v?\\d+\\.\\d+\\.\\d+(?:\\+[-.0-9A-Za-z]+)?|v0\\.\\d{4}\\.\\d{2}\\.\\d{2}\\.\\d{2}\\.\\d{2}\\.stable_\\d+)",
   "stable_tag_note": "Syntactic filter for observed Warp stable tags such as v0.2026.06.03.09.49.stable_00 and stable SemVer. All other tags remain in the observation for review. Tag names alone do not establish release provenance or ordering.",
@@ -53,6 +53,10 @@
         "target.cfg(target_os = \"windows\").dependencies|windows": {
           "sha256": "dc089218ebb847fc2f6f9f979f48b485375cc87420f0567ab14cdb98ac2d4d93",
           "reason": "Inherits native Windows bindings used by ConPTY console and process creation."
+        },
+        "dependencies|icy_sixel": {
+          "sha256": "8fbdecc45f660f8585ee3eca4c237a29c5346a6c28d837faca1b8b523f5a3963",
+          "reason": "Decode SIXEL bitmap data emitted by terminal applications."
         }
       }
     },
@@ -361,7 +365,7 @@
   ],
   "observed_files": {
     "Cargo.toml": {
-      "sha256": "9b5b8353df8720d409ceb91d17a6c61032ef2f7718f4792478e6556f7a1d6773",
+      "sha256": "f3c7c043e640228eed8affc7df6321b99bc14d61a6d98ec59f50aba2a2ffa000",
       "dependencies": {
         "workspace.dependencies|ai": {
           "sha256": "cd50eff4dde6646c0f97817bf5f013718e41b2b27ee116609c4e3ed312106a0e"
@@ -1108,7 +1112,7 @@
           "sha256": "96a6767224eb80ba5caadf390a33ff57922dbad173824177dca7e62390624102"
         },
         "workspace.dependencies|warp_multi_agent_api": {
-          "sha256": "e2ae7e5f1e79a5bd9b227a99d4ca43862b9e7cef946504a1cfe0725e35fd0fdc"
+          "sha256": "9e4fa34467150b08cffbb5a14273b23b8b050d23278f7ee060401618152ab6cf"
         },
         "workspace.dependencies|warp_multi_agent_client": {
           "sha256": "fdd4c01ee273a7cf3f62022ecfed47c6232336e99bbfa5a2500dcb260a90ce1b"
@@ -1822,7 +1826,7 @@
           "sha256": "96a6767224eb80ba5caadf390a33ff57922dbad173824177dca7e62390624102"
         },
         "dependencies|warp_multi_agent_api": {
-          "sha256": "e2ae7e5f1e79a5bd9b227a99d4ca43862b9e7cef946504a1cfe0725e35fd0fdc"
+          "sha256": "9e4fa34467150b08cffbb5a14273b23b8b050d23278f7ee060401618152ab6cf"
         },
         "dependencies|warp_multi_agent_client": {
           "sha256": "fdd4c01ee273a7cf3f62022ecfed47c6232336e99bbfa5a2500dcb260a90ce1b"

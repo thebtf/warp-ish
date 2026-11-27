@@ -578,7 +578,10 @@ impl Element for AltScreenElement {
             self.grid_render_params.use_ligature_rendering,
             cursor_visible.then(|| model.alt_screen().cursor_style().shape),
             RespectDisplayedOutput::Yes,
-            &model.image_id_to_metadata,
+            Some(grid_renderer::PaneImages {
+                pane: self.terminal_view_id,
+                metadata: &model.image_id_to_metadata,
+            }),
             Some(&mut sampler),
             self.grid_render_params.hide_cursor_cell,
             ctx,

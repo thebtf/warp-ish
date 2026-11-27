@@ -18,11 +18,26 @@ const UNENCODED_JSON_DCS_START: &[u8] = &[0x1b, 0x50, 0x24, 0x66];
 const DCS_END: &[u8] = &[0x9c];
 const DCS_END_7BIT: &[u8] = &[0x1b, 0x5c];
 
+#[test]
+fn oversized_osc_is_discarded_and_the_next_sequence_survives() {
+    let mut state = OscBudget::default();
+    for byte in b"\x1b]abc" {
+        assert!(matches!(state.observe(*byte, 3), OscInput::Feed));
+    }
+    assert!(matches!(state.observe(b'd', 3), OscInput::Reset));
+    assert!(matches!(state.observe(b'e', 3), OscInput::Skip));
+    assert!(matches!(state.observe(7, 3), OscInput::Skip));
+    for byte in b"text\x1b]123\x1b\\\x1b[0m" {
+        assert!(matches!(state.observe(*byte, 3), OscInput::Feed));
+    }
+}
+
 struct MockHandler {
     index: CharsetIndex,
     charset: StandardCharset,
     attr: Option<Attr>,
     identity_reported: bool,
+    images: Vec<crate::model::iterm_image::ITermImage>,
     d_proto_hooks: Vec<DProtoHook>,
     pluggable_notifications: Vec<(Option<String>, String)>,
     hyperlink_events: Vec<Option<Hyperlink>>,
@@ -185,6 +200,14 @@ impl Handler for MockHandler {
 
     fn text_area_size_pixels<W: io::Write>(&mut self, _: &mut W) {}
 
+    fn report_sixel_geometry<W: io::Write>(&mut self, writer: &mut W) {
+        writer.write_all(b"\x1b[?2;0;640;480S").unwrap();
+    }
+
+    fn handle_completed_iterm_image(&mut self, image: crate::model::iterm_image::ITermImage) {
+        self.images.push(image);
+    }
+
     fn text_area_size_chars<W: io::Write>(&mut self, _: &mut W) {}
 
     fn command_finished(&mut self, data: CommandFinishedValue) {
@@ -301,6 +324,7 @@ impl Default for MockHandler {
             charset: StandardCharset::Ascii,
             attr: None,
             identity_reported: false,
+            images: Vec::new(),
             d_proto_hooks: Vec::new(),
             pluggable_notifications: Vec::new(),
             hyperlink_events: Vec::new(),
@@ -1089,6 +1113,99 @@ fn parse_osc8_hyperlink_open() {
     let hyperlink = handler.hyperlink_events[0].as_ref().expect("opening link");
     assert_eq!(hyperlink.id, None);
     assert_eq!(hyperlink.uri, "https://example.com");
+}
+
+#[test]
+fn sixel_draws_overlaid_palette_colors_and_transparent_pixels_across_reads() {
+    let _guard = FeatureFlag::ITermImages.override_enabled(true);
+    let mut processor = Processor::new();
+    let mut handler = MockHandler::default();
+    let mut output = Vec::new();
+    // Three columns. Red across the first row, green at its left edge on row two.
+    processor.parse_bytes(
+        &mut handler,
+        b"\x1bP0;1q\"1;1;3;6#1;2;100;0;0!3@",
+        &mut output,
+    );
+    processor.parse_bytes(&mut handler, b"$#2;2;0;100;0A\x1b", &mut output);
+    assert!(handler.images.is_empty());
+    processor.parse_bytes(&mut handler, b"\\", &mut output);
+    let [image] = handler.images.as_slice() else {
+        panic!("expected one raster")
+    };
+    let pixels = image
+        .data
+        .strip_prefix(b"warp-img:rgba:3:6:".as_slice())
+        .expect("expected Warp RGBA header");
+    assert_eq!(
+        &pixels[..12],
+        &[255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255]
+    );
+    assert_eq!(&pixels[12..20], &[0, 255, 0, 255, 0, 0, 0, 0]);
+    assert_eq!(
+        image.placement,
+        crate::model::iterm_image::InlineImagePlacement::SixelLeft
+    );
+}
+
+#[test]
+fn sixel_ignores_cancelled_frames_and_other_dcs_commands() {
+    let _guard = FeatureFlag::ITermImages.override_enabled(true);
+    let (_, handler) = parse_bytes(b"\x1bPq~\x18\x1bPq~\x1b[0m\x1bP$q~\x1b\\\x1bP9q~\x9c");
+    assert_eq!(handler.images.len(), 1);
+}
+
+#[test]
+fn sixel_clips_the_left_pixels_of_each_row_at_the_pane_edge() {
+    let _guard = FeatureFlag::ITermImages.override_enabled(true);
+    // A 3x6 red, green, blue stripe. The right edge of the pane cuts off blue.
+    let (_, mut handler) = parse_bytes(b"\x1bP9q#1;2;100;0;0~#2;2;0;100;0~#3;2;0;0;100~\x1b\\");
+    let image = handler.images.first_mut().unwrap();
+    sixel::clip_raster(image, (3, 6), (2, 3)).unwrap();
+    let pixels = image
+        .data
+        .strip_prefix(b"warp-img:rgba:2:3:".as_slice())
+        .unwrap();
+    assert_eq!(pixels, [255, 0, 0, 255, 0, 255, 0, 255].repeat(3));
+}
+
+#[test]
+fn sixel_answers_graphics_probes_in_wire_order() {
+    let _guard = FeatureFlag::ITermImages.override_enabled(true);
+    let mut output = Vec::new();
+    Processor::new().parse_bytes(
+        &mut MockHandler::default(),
+        b"\x1b[?1;1;0S\x1b[?2;1;0S\x1b[?2;4;0S",
+        &mut output,
+    );
+    assert_eq!(
+        output,
+        b"\x1b[?1;0;256S\x1b[?2;0;640;480S\x1b[?2;0;4096;4092S"
+    );
+}
+
+#[test]
+fn sixel_preserves_palette_between_images_and_honors_private_mode() {
+    let _guard = FeatureFlag::ITermImages.override_enabled(true);
+    let (_, handler) = parse_bytes(
+        b"\x1bP9q#1;2;100;0;0@\x1b\\\x1b[?80h\x1bP9q#1@\x1b\\\x1b[?80l\x1b[?1070;8452h\x1bP9q#1@\x1b\\",
+    );
+    use crate::model::iterm_image::InlineImagePlacement;
+    let [first, second, third] = handler.images.as_slice() else {
+        panic!("expected three rasters")
+    };
+    assert_eq!(first.data, second.data);
+    assert_ne!(first.data, third.data);
+    assert_eq!(second.placement, InlineImagePlacement::SixelViewport);
+    assert_eq!(third.placement, InlineImagePlacement::SixelRight);
+}
+
+#[test]
+fn sixel_rejects_canvas_over_budget_then_accepts_next_frame() {
+    let _guard = FeatureFlag::ITermImages.override_enabled(true);
+    let (_, handler) = parse_bytes(b"\x1bP9q\"1;1;8192;8192~\x1b\\\x1bP9q~\x1b\\");
+    assert_eq!(handler.images.len(), 1);
+    assert_eq!(handler.images[0].metadata.image_size.x(), 1.);
 }
 
 #[test]

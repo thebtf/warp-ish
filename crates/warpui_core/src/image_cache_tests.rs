@@ -41,6 +41,19 @@ fn new_asset_cache() -> AssetCache {
     )
 }
 
+#[test]
+fn terminal_svg_rasterizes_pixels_and_rejects_oversized_canvas() {
+    let svg = br##"<svg width="3" height="2" xmlns="http://www.w3.org/2000/svg"><rect width="3" height="2" fill="#ff4400"/></svg>"##;
+    let png = rasterize_terminal_svg(svg).unwrap();
+    let decoded = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
+        .unwrap()
+        .into_rgba8();
+    assert_eq!(decoded.dimensions(), (3, 2));
+    assert_eq!(decoded.get_pixel(2, 1).0, [255, 68, 0, 255]);
+    let large = br#"<svg width="16384" height="16384" xmlns="http://www.w3.org/2000/svg"/>"#;
+    assert!(rasterize_terminal_svg(large).is_err());
+}
+
 fn load_bundled_image(
     image_cache: &ImageCache,
     asset_cache: &AssetCache,

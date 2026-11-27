@@ -17,12 +17,12 @@ pub use warp_terminal::event::ExitReason;
 use warp_terminal::event::{
     ObservedExitStatus, validate_and_decode_in_band_command_output_to_bytes,
 };
+use warp_terminal::model::image_limits::{MAX_TERMINAL_IMAGE_BYTES, valid_image_dimensions};
 pub use warp_terminal::model::{BlockIndex, RangeInModel};
 use warp_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
 use warpui::AppContext;
-use warpui::assets::asset_cache::Asset;
 use warpui::r#async::executor::Background;
-use warpui::image_cache::ImageType;
+use warpui::image_cache::rasterize_terminal_svg;
 
 use super::super::{AltScreen, BlockList};
 use super::ansi::{BootstrappedValue, FinishUpdateValue, InputBufferValue, Mode, PendingHook};
@@ -314,6 +314,8 @@ enum IsReceivingCompletionsOutput {
 enum IsReceivingITermImageData {
     /// We're currently expecting chunks of image data to come over the PTY to form the entire image.
     Yes { pending: ITermImage },
+    /// Ignore the rest of a rejected multipart transfer.
+    Discard,
 
     /// PTY output should be handled normally.
     No,
@@ -1287,6 +1289,33 @@ impl TerminalModel {
 
     pub fn remove_image_id_to_metadata_entry(&mut self, image_id: u32) {
         self.image_id_to_metadata.remove(&image_id);
+    }
+
+    fn forget_unplaced_kitty_image(&mut self, image_id: u32) {
+        if self
+            .alt_screen
+            .grid_handler()
+            .contains_image_placement(image_id)
+            || self.block_list.blocks().iter().any(|b| {
+                [
+                    b.output_grid(),
+                    b.prompt_and_command_grid(),
+                    b.rprompt_grid(),
+                ]
+                .iter()
+                .any(|g| g.grid_handler().contains_image_placement(image_id))
+            })
+        {
+            return;
+        }
+        if matches!(
+            self.image_id_to_metadata.get(&image_id),
+            Some(StoredImageMetadata::Kitty(_))
+        ) {
+            self.image_id_to_metadata.remove(&image_id);
+            self.event_proxy
+                .send_app_event(Event::ImageDeleted(image_id));
+        }
     }
 
     /// Starts the active block and resets block-to-block state. For local sessions, this is called
@@ -2407,6 +2436,10 @@ impl ansi::Handler for TerminalModel {
         delegate!(self.text_area_size_pixels(writer));
     }
 
+    fn report_sixel_geometry<W: std::io::Write>(&mut self, writer: &mut W) {
+        delegate!(self.report_sixel_geometry(writer));
+    }
+
     fn text_area_size_chars<W: std::io::Write>(&mut self, writer: &mut W) {
         delegate!(self.text_area_size_chars(writer));
     }
@@ -2872,11 +2905,19 @@ impl ansi::Handler for TerminalModel {
     }
 
     fn start_iterm_image_receiving(&mut self, metadata: ITermImageMetadata) {
+        if !metadata.inline || !FeatureFlag::ITermImages.is_enabled() {
+            self.is_receiving_iterm_image_data = IsReceivingITermImageData::Discard;
+            return;
+        }
         let pending = ITermImage {
             metadata,
             ..Default::default()
         };
         self.is_receiving_iterm_image_data = IsReceivingITermImageData::Yes { pending };
+    }
+
+    fn cancel_iterm_image_receiving(&mut self) {
+        self.is_receiving_iterm_image_data = IsReceivingITermImageData::Discard;
     }
 
     fn end_iterm_image_receiving(&mut self) {
@@ -2891,23 +2932,43 @@ impl ansi::Handler for TerminalModel {
                 else {
                     return;
                 };
-                pending.data = decoded_bytes;
-
-                if !pending.metadata.inline {
-                    log::warn!(
-                        "Ignoring non-inline iTerm file payload; automatic local file writes are disabled."
-                    );
+                if decoded_bytes.len() > MAX_TERMINAL_IMAGE_BYTES {
                     return;
                 }
-
-                let Ok(image_type) = ImageType::try_from_bytes(&pending.data[..]) else {
+                let text_start = decoded_bytes
+                    .strip_prefix(b"\xef\xbb\xbf")
+                    .unwrap_or(&decoded_bytes);
+                pending.data = if text_start.trim_ascii_start().first() == Some(&b'<') {
+                    let Ok(png) = rasterize_terminal_svg(&decoded_bytes) else {
+                        return;
+                    };
+                    png
+                } else {
+                    decoded_bytes
+                };
+                // Inspect the header here; the asset cache decodes the pixels.
+                let Ok(format) = image::guess_format(&pending.data) else {
                     return;
                 };
-                let Some(image_size) = image_type.image_size() else {
+                if !matches!(
+                    format,
+                    image::ImageFormat::Png
+                        | image::ImageFormat::Jpeg
+                        | image::ImageFormat::Gif
+                        | image::ImageFormat::WebP
+                ) {
+                    return;
+                }
+                let reader =
+                    image::ImageReader::with_format(std::io::Cursor::new(&pending.data), format);
+                let Ok((width, height)) = reader.into_dimensions() else {
                     return;
                 };
-
-                pending.metadata.image_size = image_size.to_f32();
+                if !valid_image_dimensions(width, height) {
+                    return;
+                }
+                pending.metadata.image_size =
+                    pathfinder_geometry::vector::Vector2F::new(width as f32, height as f32);
 
                 self.handle_completed_iterm_image(pending);
             }
@@ -2916,17 +2977,24 @@ impl ansi::Handler for TerminalModel {
                     "Received 'end_iterm_image_receiving' while not expecting to read iTerm image chunks."
                 )
             }
+            IsReceivingITermImageData::Discard => (),
         }
     }
 
     fn on_iterm_image_data_received(&mut self, image_data: &[u8]) {
         match &mut self.is_receiving_iterm_image_data {
             IsReceivingITermImageData::Yes { pending } => {
-                pending.data.extend_from_slice(image_data);
+                let max_encoded = MAX_TERMINAL_IMAGE_BYTES.div_ceil(3) * 4;
+                if image_data.len() <= max_encoded.saturating_sub(pending.data.len()) {
+                    pending.data.extend_from_slice(image_data);
+                } else {
+                    self.is_receiving_iterm_image_data = IsReceivingITermImageData::Discard;
+                }
             }
             IsReceivingITermImageData::No => {
                 log::warn!("Unexpectedly received iTerm image chunk");
             }
+            IsReceivingITermImageData::Discard => (),
         }
     }
 
@@ -3034,23 +3102,28 @@ impl ansi::Handler for TerminalModel {
                         deletion_type,
                     } => match deletion_type {
                         DeletionType::DeleteAll => {
-                            if !delete_placements_only {
-                                self.image_id_to_metadata.clear();
-                            }
-
-                            if self.alt_screen_active {
-                                self.alt_screen.grid_handler_mut().evict_all_images();
+                            let removed = if self.alt_screen_active {
+                                self.alt_screen
+                                    .grid_handler_mut()
+                                    .evict_visible_kitty_images()
                             } else {
-                                for block in self.block_list_mut().blocks_mut() {
-                                    block.grid_handler_mut().evict_all_images();
+                                self.block_list_mut()
+                                    .active_block_mut()
+                                    .grid_handler_mut()
+                                    .evict_visible_kitty_images()
+                            };
+                            if !delete_placements_only {
+                                for image_id in removed {
+                                    self.forget_unplaced_kitty_image(image_id);
                                 }
                             }
                         }
-                        DeletionType::DeleteById(delete_by_id) => {
-                            if !delete_placements_only {
-                                self.image_id_to_metadata.remove(&delete_by_id.image_id);
-                            }
-
+                        DeletionType::DeleteById(delete_by_id)
+                            if matches!(
+                                self.image_id_to_metadata.get(&delete_by_id.image_id),
+                                Some(StoredImageMetadata::Kitty(_))
+                            ) =>
+                        {
                             if self.alt_screen_active {
                                 if let Some(placement_id) = delete_by_id.placement_id {
                                     self.alt_screen
@@ -3072,11 +3145,15 @@ impl ansi::Handler for TerminalModel {
                                     }
                                 }
                             }
+                            if !delete_placements_only {
+                                self.forget_unplaced_kitty_image(delete_by_id.image_id);
+                            }
                         }
+                        DeletionType::DeleteById(_) => {}
                     },
                 }
 
-                match self.handle_completed_kitty_action(action.clone(), &mut HashMap::new()) {
+                match self.handle_completed_kitty_action(action, &mut HashMap::new()) {
                     Some(Ok(_)) => {
                         if let Some(message_id) = message_id
                             && verbosity.send_ok()
@@ -3109,14 +3186,11 @@ impl ansi::Handler for TerminalModel {
     fn on_kitty_image_chunk_received(&mut self, chunk: KittyChunk) {
         match &mut self.is_receiving_kitty_image_data {
             IsReceivingKittyActionData::Yes { pending } => {
-                pending.payload.push(chunk.payload);
+                pending.append(chunk);
             }
             IsReceivingKittyActionData::No => {
                 self.is_receiving_kitty_image_data = IsReceivingKittyActionData::Yes {
-                    pending: PendingKittyMessage {
-                        control_data: chunk.control_data,
-                        payload: vec![chunk.payload],
-                    },
+                    pending: PendingKittyMessage::new(chunk),
                 };
             }
         }

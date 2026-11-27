@@ -237,6 +237,44 @@ pub struct AssetCache {
     background_executor: Arc<executor::Background>,
 }
 
+/// A view owns the raw assets in its namespace, including their resized copies.
+pub struct RawAssetScope {
+    prefix: String,
+    assets: Rc<RefCell<HashMap<AssetHandle, AssetStateInternal>>>,
+    image_cache: ImageCache,
+}
+
+impl RawAssetScope {
+    pub fn local_id<'a>(&self, key: &'a str) -> Option<&'a str> {
+        key.strip_prefix(&self.prefix)
+    }
+
+    pub fn remove<T: Asset>(&self, id: impl std::fmt::Display) {
+        let source = AssetSource::Raw {
+            id: format!("{}{id}", self.prefix),
+        };
+        self.assets.borrow_mut().remove(&AssetHandle {
+            source: source.clone(),
+            asset_type: TypeId::of::<T>(),
+        });
+        self.image_cache.evict_image(&source);
+    }
+}
+
+impl Drop for RawAssetScope {
+    fn drop(&mut self) {
+        self.assets.borrow_mut().retain(|handle, _| {
+            if let AssetSource::Raw { id } = &handle.source
+                && id.starts_with(&self.prefix)
+            {
+                self.image_cache.evict_image(&handle.source);
+                return false;
+            }
+            true
+        });
+    }
+}
+
 pub trait Asset: Any {
     fn try_from_bytes(data: &[u8]) -> anyhow::Result<Self>
     where
@@ -295,8 +333,16 @@ impl AssetCache {
             .sum()
     }
 
+    pub fn raw_asset_scope(&self, owner: crate::EntityId) -> RawAssetScope {
+        RawAssetScope {
+            prefix: format!("{owner}:"),
+            assets: self.inner.clone(),
+            image_cache: self.image_cache.clone(),
+        }
+    }
+
     /// Removes the least recently added raw assets until the total size is within the limit.
-    fn evict_raw_assets_if_needed(&self, ctx: &ModelContext<Self>) -> Vec<u32> {
+    fn evict_raw_assets_if_needed(&self, ctx: &ModelContext<Self>) -> Vec<String> {
         let mut total_size = self.get_total_raw_asset_size();
         let mut assets = self.inner.borrow_mut();
 
@@ -334,13 +380,10 @@ impl AssetCache {
             if let AssetSource::Raw { id } = &handle.source
                 && assets.remove(&handle).is_some()
             {
-                assets.insert(handle.clone(), AssetStateInternal::Evicted);
                 ImageCache::as_ref(ctx).evict_image(&handle.source);
                 total_size -= size_in_bytes;
 
-                if let Ok(id) = id.parse::<u32>() {
-                    evicted_image_ids.push(id);
-                }
+                evicted_image_ids.push(id.clone());
             }
         }
 
@@ -450,15 +493,8 @@ impl AssetCache {
                         }),
                     );
                 }
-                AssetSource::Raw { id } => {
-                    assets.insert(
-                        key.clone(),
-                        AssetStateInternal::Error(Rc::new(anyhow!(
-                            "Raw image with ID {:?} did not exist",
-                            id
-                        ))),
-                    );
-                }
+                // Raw bytes have no backing provider and can't be fetched after eviction.
+                AssetSource::Raw { .. } => return AssetState::Evicted,
             };
         }
 
@@ -493,7 +529,13 @@ impl AssetCache {
             }
             Err(err) => {
                 log::warn!("Raw asset conversion failed (ID: {id}): {err:#}");
-                assets.insert(key.clone(), AssetStateInternal::Error(Rc::new(err)));
+                assets.remove(&key);
+                drop(assets);
+                ImageCache::as_ref(ctx).evict_image(&source);
+                ctx.emit(AssetCacheEvent::ImagesEvicted {
+                    image_ids: vec![id],
+                });
+                return;
             }
         };
 
@@ -622,7 +664,7 @@ impl AssetCache {
 
 #[derive(Debug, Clone)]
 pub enum AssetCacheEvent {
-    ImagesEvicted { image_ids: Vec<u32> },
+    ImagesEvicted { image_ids: Vec<String> },
 }
 
 impl Entity for AssetCache {

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ops::{Neg, RangeInclusive};
 
 use pathfinder_color::ColorU;
@@ -10,9 +9,8 @@ use warpui::{AppContext, Element, EntityId, PaintContext};
 use super::model::SecretHandle;
 use super::model::ansi::{CursorShape, CursorStyle};
 use super::model::grid::RespectDisplayedOutput;
-use super::model::image_map::StoredImageMetadata;
 use crate::settings::EnforceMinimumContrast;
-use crate::terminal::grid_renderer::{CellGlyphCache, render_cursor, render_grid};
+use crate::terminal::grid_renderer::{CellGlyphCache, PaneImages, render_cursor, render_grid};
 use crate::terminal::model::ObfuscateSecrets;
 use crate::terminal::model::blockgrid::{BlockGrid, CursorDisplayPoint};
 use crate::terminal::model::grid::grid_handler::Link;
@@ -60,7 +58,7 @@ pub trait BlockGridRenderer {
         properties: Properties,
         block_grid_params: &BlockGridParams,
         visible_cursor_shape: Option<CursorShape>,
-        image_metadata: &HashMap<u32, StoredImageMetadata>,
+        image_metadata: Option<PaneImages<'_>>,
         ctx: &mut PaintContext,
         app: &AppContext,
     );
@@ -103,7 +101,7 @@ impl BlockGridRenderer for BlockGrid {
         properties: Properties,
         block_grid_params: &BlockGridParams,
         visible_cursor_shape: Option<CursorShape>,
-        image_metadata: &HashMap<u32, StoredImageMetadata>,
+        image_metadata: Option<PaneImages<'_>>,
         ctx: &mut PaintContext,
         app: &AppContext,
     ) {
@@ -188,7 +186,7 @@ impl BlockGridRenderer for BlockGrid {
             Properties::default(),
             block_grid_params,
             None,
-            &HashMap::new(),
+            None,
             ctx,
             app,
         )

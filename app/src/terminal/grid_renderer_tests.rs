@@ -9,6 +9,20 @@ use crate::terminal::model::index::Point;
 use crate::terminal::model::selection::SelectionPoint;
 use crate::terminal::{SizeInfo, grid_renderer};
 
+#[test]
+fn distinct_panes_can_use_the_same_kitty_image_id() {
+    let first = warpui::EntityId::new();
+    let second = warpui::EntityId::new();
+    assert_ne!(
+        grid_renderer::terminal_image_asset_key(first, 1),
+        grid_renderer::terminal_image_asset_key(second, 1)
+    );
+    assert_ne!(
+        grid_renderer::terminal_image_asset_key(first, 1),
+        grid_renderer::terminal_image_asset_key(first, 2)
+    );
+}
+
 fn rect_from_points(min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> RectF {
     RectF::from_points(vec2f(min_x, min_y), vec2f(max_x, max_y))
 }
